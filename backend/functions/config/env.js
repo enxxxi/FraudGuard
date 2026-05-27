@@ -14,7 +14,7 @@ const parseCorsOrigin = (value) => {
 const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   logLevel: process.env.LOG_LEVEL || "info",
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT,
+  firebaseProjectId: process.env.PROJECT_ID || process.env.GCLOUD_PROJECT,
   corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),
   highAmountThreshold: toNumber(process.env.HIGH_AMOUNT_THRESHOLD, 5000),
   mediumAmountThreshold: toNumber(process.env.MEDIUM_AMOUNT_THRESHOLD, 1500),

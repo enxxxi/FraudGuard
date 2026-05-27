@@ -29,3 +29,24 @@ Thumbs.db
 .egg-info/
 dist/
 build/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Firebase local project and emulator artifacts
+backend/.firebaserc
+backend/functions/.env
+backend/functions/.env.*
+!backend/functions/.env.example
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
+backend/**/firebase-debug.log
+backend/**/firebase-debug.*.log
+backend/**/firestore-debug.log
+backend/**/ui-debug.log
+backend/**/database-debug.log

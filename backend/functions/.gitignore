@@ -1,5 +1,10 @@
 node_modules/
 .env
+.env.*
+!.env.example
 firebase-debug.log
 firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+database-debug.log
 *.local

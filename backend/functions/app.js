@@ -27,7 +27,10 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.use("/api", apiRoutes);
+// The Firebase Function is already exported as "api", so these routes should
+// mount at the Express root. Emulator URL:
+// /<project-id>/us-central1/api/email/analyze
+app.use("/", apiRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

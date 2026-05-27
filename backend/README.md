@@ -51,7 +51,7 @@ Example response:
 }
 ```
 
-### POST /api/email/analyze
+### POST /email/analyze
 
 Parses simulated bank email content, extracts transaction fields, scores fraud risk, stores the analysis, and returns the result.
 
@@ -92,7 +92,7 @@ Example response:
 }
 ```
 
-### POST /api/fraud/predict
+### POST /fraud/predict
 
 Accepts transaction JSON directly and returns fraud analysis.
 
@@ -129,14 +129,14 @@ Example response:
 }
 ```
 
-### GET /api/dashboard/stats
+### GET /dashboard/stats
 
 Returns analytics data for dashboard cards and charts.
 
 Example:
 
 ```text
-GET /api/dashboard/stats?userId=demo-user
+GET /dashboard/stats?userId=demo-user
 ```
 
 Example response:
