@@ -1,4 +1,5 @@
-const { admin, db } = require("../firebase");
+const { FieldValue, Timestamp } = require("firebase-admin/firestore");
+const { db } = require("../firebase");
 
 const TRANSACTIONS_COLLECTION = "transactions";
 
@@ -9,8 +10,8 @@ const saveAnalysis = async ({ source, rawEmail = null, transaction, analysis, us
     rawEmail,
     transaction,
     analysis,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
   };
 
   const ref = await db.collection(TRANSACTIONS_COLLECTION).add(payload);
@@ -23,7 +24,7 @@ const getRecentTransactionsByUser = async ({ userId, minutes }) => {
   const snapshot = await db
     .collection(TRANSACTIONS_COLLECTION)
     .where("userId", "==", userId)
-    .where("createdAt", ">=", admin.firestore.Timestamp.fromDate(since))
+    .where("createdAt", ">=", Timestamp.fromDate(since))
     .orderBy("createdAt", "desc")
     .limit(25)
     .get();

@@ -71,11 +71,16 @@ Example response:
   "transactionId": "abc123",
   "extractedTransaction": {
     "amount": 8500,
-    "transactionType": "PURCHASE",
+    "transactionType": "CARD_PURCHASE",
+    "direction": "DEBIT",
     "transactionTime": "2026-05-21T02:03:00.000Z",
     "merchant": "Unknown Crypto Exchange",
     "location": "Unknown",
-    "currency": "MYR"
+    "currency": "MYR",
+    "referenceId": null,
+    "extractionWarnings": [
+      "Location could not be confidently detected."
+    ]
   },
   "fraudProbability": 0.93,
   "riskLevel": "HIGH",
@@ -188,10 +193,13 @@ Risk levels:
   "transaction": {
     "amount": 8500,
     "currency": "MYR",
-    "transactionType": "PURCHASE",
+    "transactionType": "CARD_PURCHASE",
+    "direction": "DEBIT",
     "transactionTime": "2026-05-21T02:03:00.000Z",
     "merchant": "Unknown Crypto Exchange",
-    "location": "Unknown"
+    "location": "Unknown",
+    "referenceId": null,
+    "extractionWarnings": []
   },
   "analysis": {
     "fraudProbability": 0.93,
