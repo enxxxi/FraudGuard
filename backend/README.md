@@ -174,6 +174,12 @@ Rules:
 - abnormal transaction frequency
 - unusual merchant
 - suspicious location
+- risky transaction type such as online purchase, ATM withdrawal, or fund transfer
+- non-local currency
+- unclear parsed fields from email extraction warnings
+- missing transaction reference ID for debit transactions
+
+Each suspicious factor includes a code, reason, weight, related field, and observed value so the dashboard can explain why a transaction was flagged.
 
 Risk levels:
 
