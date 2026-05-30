@@ -9,6 +9,7 @@ const apiRoutes = require("./routes");
 const { requestLogger } = require("./middleware/requestLogger");
 const { notFoundHandler } = require("./middleware/notFoundHandler");
 const { errorHandler } = require("./middleware/errorHandler");
+const { sendSuccess } = require("./utils/apiResponse");
 
 const app = express();
 
@@ -19,7 +20,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(requestLogger);
 
 app.get("/health", (req, res) => {
-  res.status(200).json({
+  sendSuccess(res, {
     status: "ok",
     service: "FraudGuard Backend",
     environment: env.nodeEnv,

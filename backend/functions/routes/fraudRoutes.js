@@ -1,6 +1,13 @@
 const router = require("express").Router();
-const { predictFraud } = require("../controllers/fraudController");
+const {
+  getSavedAnalysis,
+  listSavedAnalyses,
+  predictFraud
+} = require("../controllers/fraudController");
+const { requireBodyFields } = require("../middleware/validateRequest");
 
-router.post("/predict", predictFraud);
+router.post("/predict", requireBodyFields(["amount", "merchant"]), predictFraud);
+router.get("/analyses", listSavedAnalyses);
+router.get("/analyses/:id", getSavedAnalysis);
 
 module.exports = router;

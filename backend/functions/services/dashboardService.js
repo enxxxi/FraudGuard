@@ -5,12 +5,25 @@ const toDayKey = (value) => {
   return date.toISOString().slice(0, 10);
 };
 
+const incrementMapCount = (map, key) => {
+  const normalizedKey = key || "UNKNOWN";
+  map.set(normalizedKey, (map.get(normalizedKey) || 0) + 1);
+};
+
+const toCountItems = (map, keyName) => Array.from(map.entries())
+  .map(([key, count]) => ({ [keyName]: key, count }))
+  .sort((a, b) => b.count - a.count || String(a[keyName]).localeCompare(String(b[keyName])));
+
 const getDashboardStats = async ({ userId }) => {
   const transactions = await getTransactionsByUser({ userId });
 
   const totalTransactions = transactions.length;
   const fraudCount = transactions.filter((item) => item.analysis?.fraudProbability >= 0.7).length;
   const highRiskCount = transactions.filter((item) => item.analysis?.riskLevel === "HIGH").length;
+  const totalFraudProbability = transactions.reduce(
+    (sum, item) => sum + Number(item.analysis?.fraudProbability || 0),
+    0
+  );
 
   const trendMap = transactions.reduce((acc, item) => {
     const day = toDayKey(item.createdAt);
@@ -24,11 +37,42 @@ const getDashboardStats = async ({ userId }) => {
     return acc;
   }, new Map());
 
+  const riskDistributionMap = new Map();
+  const transactionTypeMap = new Map();
+  const sourceMap = new Map();
+
+  transactions.forEach((item) => {
+    incrementMapCount(riskDistributionMap, item.analysis?.riskLevel);
+    incrementMapCount(transactionTypeMap, item.transaction?.transactionType);
+    incrementMapCount(sourceMap, item.source);
+  });
+
   return {
     totalTransactions,
     fraudCount,
     highRiskCount,
+    mediumRiskCount: transactions.filter((item) => item.analysis?.riskLevel === "MEDIUM").length,
+    lowRiskCount: transactions.filter((item) => item.analysis?.riskLevel === "LOW").length,
+    averageFraudProbability: totalTransactions
+      ? Number((totalFraudProbability / totalTransactions).toFixed(2))
+      : 0,
     fraudTrendData: Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
+    riskDistribution: toCountItems(riskDistributionMap, "riskLevel"),
+    transactionTypeBreakdown: toCountItems(transactionTypeMap, "transactionType"),
+    sourceBreakdown: toCountItems(sourceMap, "source"),
+    recentHighRiskAnalyses: transactions
+      .filter((item) => item.analysis?.riskLevel === "HIGH")
+      .slice(0, 5)
+      .map((item) => ({
+        id: item.id,
+        source: item.source,
+        amount: item.transaction?.amount,
+        currency: item.transaction?.currency,
+        merchant: item.transaction?.merchant,
+        riskLevel: item.analysis?.riskLevel,
+        fraudProbability: item.analysis?.fraudProbability,
+        createdAt: item.createdAt
+      })),
     generatedAt: new Date().toISOString()
   };
 };

@@ -2,10 +2,129 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // API writes are performed by Firebase Admin SDK in Cloud Functions.
-    // Direct client access can be tightened when the frontend auth flow is added.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasOnlyKeys(value, keys) {
+      return value.keys().hasOnly(keys);
+    }
+
+    function isNullableString(value) {
+      return value == null || value is string;
+    }
+
+    function isIsoDateString(value) {
+      return value is string && value.size() >= 10 && value.size() <= 40;
+    }
+
+    function isTransaction(value) {
+      return value is map
+        && hasOnlyKeys(value, [
+          "amount",
+          "currency",
+          "transactionType",
+          "direction",
+          "transactionTime",
+          "merchant",
+          "location",
+          "referenceId",
+          "extractionWarnings"
+        ])
+        && value.amount is number
+        && value.amount > 0
+        && value.currency is string
+        && value.currency.size() >= 3
+        && value.currency.size() <= 12
+        && value.transactionType in [
+          "ATM_WITHDRAWAL",
+          "ONLINE_PURCHASE",
+          "FUND_TRANSFER",
+          "CARD_PURCHASE",
+          "BILL_PAYMENT",
+          "ACCOUNT_CREDIT",
+          "UNKNOWN"
+        ]
+        && value.direction in ["DEBIT", "CREDIT", "UNKNOWN"]
+        && isIsoDateString(value.transactionTime)
+        && value.merchant is string
+        && value.merchant.size() > 0
+        && value.merchant.size() <= 160
+        && value.location is string
+        && value.location.size() > 0
+        && value.location.size() <= 160
+        && isNullableString(value.referenceId)
+        && value.extractionWarnings is list
+        && value.extractionWarnings.size() <= 20;
+    }
+
+    function isAnalysis(value) {
+      return value is map
+        && hasOnlyKeys(value, [
+          "fraudProbability",
+          "riskLevel",
+          "explanation",
+          "suspiciousFactors",
+          "scoringSummary",
+          "modelVersion",
+          "analyzedAt"
+        ])
+        && value.fraudProbability is number
+        && value.fraudProbability >= 0
+        && value.fraudProbability <= 1
+        && value.riskLevel in ["LOW", "MEDIUM", "HIGH"]
+        && value.explanation is string
+        && value.explanation.size() > 0
+        && value.explanation.size() <= 1200
+        && value.suspiciousFactors is list
+        && value.suspiciousFactors.size() <= 25
+        && value.scoringSummary is map
+        && value.modelVersion is string
+        && value.modelVersion.size() > 0
+        && value.modelVersion.size() <= 80
+        && isIsoDateString(value.analyzedAt);
+    }
+
+    function isTransactionAnalysisDocument(value) {
+      return value is map
+        && hasOnlyKeys(value, [
+          "schemaVersion",
+          "userId",
+          "source",
+          "rawEmail",
+          "transaction",
+          "analysis",
+          "createdAt",
+          "updatedAt"
+        ])
+        && value.schemaVersion == 1
+        && value.userId is string
+        && value.userId.size() > 0
+        && value.userId.size() <= 128
+        && value.source in ["api", "email"]
+        && isNullableString(value.rawEmail)
+        && isTransaction(value.transaction)
+        && isAnalysis(value.analysis)
+        && value.createdAt is timestamp
+        && value.updatedAt is timestamp;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isOwner(request.resource.data.userId)
+        && isTransactionAnalysisDocument(request.resource.data);
+      allow update: if isOwner(resource.data.userId)
+        && request.resource.data.userId == resource.data.userId
+        && isTransactionAnalysisDocument(request.resource.data);
+      allow delete: if false;
+    }
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

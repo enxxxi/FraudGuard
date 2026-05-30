@@ -1,23 +1,15 @@
 const { asyncHandler } = require("../utils/asyncHandler");
 const { AppError } = require("../utils/AppError");
+const { sendSuccess } = require("../utils/apiResponse");
 const { analyzeTransaction } = require("../services/fraudDetectionService");
-const { saveAnalysis } = require("../services/transactionRepository");
+const {
+  getSavedAnalysisById,
+  listSavedAnalysesByUser,
+  saveAnalysis
+} = require("../services/transactionRepository");
 
 const predictFraud = asyncHandler(async (req, res) => {
   const { userId = "demo-user", ...transaction } = req.body;
-
-  if (!transaction.amount || !transaction.merchant) {
-    throw new AppError("amount and merchant are required.", 400, {
-      requiredFields: ["amount", "merchant"],
-      example: {
-        amount: 8500,
-        transactionType: "ONLINE_PURCHASE",
-        transactionTime: "2026-05-21T02:03:00+08:00",
-        merchant: "Unknown Electronics Store",
-        location: "Lagos, Nigeria"
-      }
-    });
-  }
 
   const analysis = await analyzeTransaction(transaction, { userId });
   const saved = await saveAnalysis({
@@ -27,10 +19,45 @@ const predictFraud = asyncHandler(async (req, res) => {
     userId
   });
 
-  res.status(200).json({
+  sendSuccess(res, {
     transactionId: saved.id,
     ...analysis
   });
 });
 
-module.exports = { predictFraud };
+const listSavedAnalyses = asyncHandler(async (req, res) => {
+  const {
+    userId = "demo-user",
+    limit,
+    riskLevel = null,
+    source = null
+  } = req.query;
+
+  const analyses = await listSavedAnalysesByUser({
+    userId,
+    limit,
+    riskLevel,
+    source
+  });
+
+  sendSuccess(res, { analyses }, 200, { count: analyses.length });
+});
+
+const getSavedAnalysis = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { userId = "demo-user" } = req.query;
+
+  const savedAnalysis = await getSavedAnalysisById({ id, userId });
+
+  if (!savedAnalysis) {
+    throw new AppError("Saved transaction analysis was not found.", 404, { id });
+  }
+
+  sendSuccess(res, savedAnalysis);
+});
+
+module.exports = {
+  getSavedAnalysis,
+  listSavedAnalyses,
+  predictFraud
+};
