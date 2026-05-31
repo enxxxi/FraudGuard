@@ -1,7 +1,8 @@
 const router = require("express").Router();
 const { analyzeEmail } = require("../controllers/emailController");
-const { requireStringBodyFields } = require("../middleware/validateRequest");
+const { validateBody } = require("../middleware/validateRequest");
+const { emailAnalyzeBodySchema } = require("../validators/emailValidators");
 
-router.post("/analyze", requireStringBodyFields(["emailContent"]), analyzeEmail);
+router.post("/analyze", validateBody(emailAnalyzeBodySchema), analyzeEmail);
 
 module.exports = router;

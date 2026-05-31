@@ -1,38 +1,31 @@
+const { ZodError } = require("zod");
 const { AppError } = require("../utils/AppError");
 
-const requireBodyFields = (fields) => (req, _res, next) => {
-  const missingFields = fields.filter((field) => {
-    const value = req.body?.[field];
-    return value === undefined || value === null || value === "";
-  });
+const formatZodIssues = (error) => error.issues.map((issue) => ({
+  field: issue.path.join(".") || "request",
+  message: issue.message
+}));
 
-  if (missingFields.length) {
-    return next(new AppError("Required request fields are missing.", 400, {
-      missingFields,
-      requiredFields: fields
-    }));
+const validate = (schema, source) => (req, _res, next) => {
+  const result = schema.safeParse(req[source]);
+
+  if (!result.success) {
+    const details = formatZodIssues(result.error);
+    return next(new AppError(`Invalid ${source}.`, 400, { validationErrors: details }));
   }
 
+  req[source] = result.data;
   return next();
 };
 
-const requireStringBodyFields = (fields) => (req, _res, next) => {
-  const invalidFields = fields.filter((field) => {
-    const value = req.body?.[field];
-    return typeof value !== "string" || !value.trim();
-  });
+const validateBody = (schema) => validate(schema, "body");
 
-  if (invalidFields.length) {
-    return next(new AppError("Required request fields must be non-empty strings.", 400, {
-      invalidFields,
-      requiredFields: fields
-    }));
-  }
+const validateQuery = (schema) => validate(schema, "query");
 
-  return next();
-};
+const isValidationError = (error) => error instanceof ZodError;
 
 module.exports = {
-  requireBodyFields,
-  requireStringBodyFields
+  isValidationError,
+  validateBody,
+  validateQuery
 };

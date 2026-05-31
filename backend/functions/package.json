@@ -22,7 +22,8 @@
     "firebase-admin": "^13.0.2",
     "firebase-functions": "^6.1.2",
     "helmet": "^8.0.0",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "eslint": "^9.18.0"

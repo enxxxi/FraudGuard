@@ -14,12 +14,25 @@ const toCountItems = (map, keyName) => Array.from(map.entries())
   .map(([key, count]) => ({ [keyName]: key, count }))
   .sort((a, b) => b.count - a.count || String(a[keyName]).localeCompare(String(b[keyName])));
 
+const toTransactionTypeItems = (map) => Array.from(map.entries())
+  .map(([transactionType, summary]) => ({
+    transactionType,
+    count: summary.count,
+    averageFraudProbability: summary.count
+      ? Number((summary.totalFraudProbability / summary.count).toFixed(2))
+      : 0
+  }))
+  .sort((a, b) => b.count - a.count || a.transactionType.localeCompare(b.transactionType));
+
 const getDashboardStats = async ({ userId }) => {
   const transactions = await getTransactionsByUser({ userId });
 
   const totalTransactions = transactions.length;
   const fraudCount = transactions.filter((item) => item.analysis?.fraudProbability >= 0.7).length;
   const highRiskCount = transactions.filter((item) => item.analysis?.riskLevel === "HIGH").length;
+  const blockedExposure = transactions
+    .filter((item) => item.analysis?.riskLevel === "HIGH")
+    .reduce((sum, item) => sum + Number(item.transaction?.amount || 0), 0);
   const totalFraudProbability = transactions.reduce(
     (sum, item) => sum + Number(item.analysis?.fraudProbability || 0),
     0
@@ -42,8 +55,17 @@ const getDashboardStats = async ({ userId }) => {
   const sourceMap = new Map();
 
   transactions.forEach((item) => {
+    const transactionType = item.transaction?.transactionType || "UNKNOWN";
+    const typeSummary = transactionTypeMap.get(transactionType) || {
+      count: 0,
+      totalFraudProbability: 0
+    };
+
+    typeSummary.count += 1;
+    typeSummary.totalFraudProbability += Number(item.analysis?.fraudProbability || 0);
+
     incrementMapCount(riskDistributionMap, item.analysis?.riskLevel);
-    incrementMapCount(transactionTypeMap, item.transaction?.transactionType);
+    transactionTypeMap.set(transactionType, typeSummary);
     incrementMapCount(sourceMap, item.source);
   });
 
@@ -56,9 +78,10 @@ const getDashboardStats = async ({ userId }) => {
     averageFraudProbability: totalTransactions
       ? Number((totalFraudProbability / totalTransactions).toFixed(2))
       : 0,
+    blockedExposure: Number(blockedExposure.toFixed(2)),
     fraudTrendData: Array.from(trendMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
     riskDistribution: toCountItems(riskDistributionMap, "riskLevel"),
-    transactionTypeBreakdown: toCountItems(transactionTypeMap, "transactionType"),
+    transactionTypeBreakdown: toTransactionTypeItems(transactionTypeMap),
     sourceBreakdown: toCountItems(sourceMap, "source"),
     recentHighRiskAnalyses: transactions
       .filter((item) => item.analysis?.riskLevel === "HIGH")

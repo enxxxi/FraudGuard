@@ -18,6 +18,10 @@ service cloud.firestore {
       return value == null || value is string;
     }
 
+    function isNullableLimitedString(value, maxLength) {
+      return value == null || (value is string && value.size() <= maxLength);
+    }
+
     function isIsoDateString(value) {
       return value is string && value.size() >= 10 && value.size() <= 40;
     }
@@ -106,7 +110,7 @@ service cloud.firestore {
         && value.userId.size() > 0
         && value.userId.size() <= 128
         && value.source in ["api", "email"]
-        && isNullableString(value.rawEmail)
+        && isNullableLimitedString(value.rawEmail, 20000)
         && isTransaction(value.transaction)
         && isAnalysis(value.analysis)
         && value.createdAt is timestamp

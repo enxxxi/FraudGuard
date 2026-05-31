@@ -4,10 +4,15 @@ const {
   listSavedAnalyses,
   predictFraud
 } = require("../controllers/fraudController");
-const { requireBodyFields } = require("../middleware/validateRequest");
+const { validateBody, validateQuery } = require("../middleware/validateRequest");
+const {
+  fraudPredictionBodySchema,
+  savedAnalysesQuerySchema,
+  savedAnalysisByIdQuerySchema
+} = require("../validators/fraudValidators");
 
-router.post("/predict", requireBodyFields(["amount", "merchant"]), predictFraud);
-router.get("/analyses", listSavedAnalyses);
-router.get("/analyses/:id", getSavedAnalysis);
+router.post("/predict", validateBody(fraudPredictionBodySchema), predictFraud);
+router.get("/analyses", validateQuery(savedAnalysesQuerySchema), listSavedAnalyses);
+router.get("/analyses/:id", validateQuery(savedAnalysisByIdQuerySchema), getSavedAnalysis);
 
 module.exports = router;
