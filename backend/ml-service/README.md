@@ -1,8 +1,24 @@
-# FraudGuard ML Service Placeholder
+# FraudGuard ML Service
 
-This folder is reserved for the future Python ML microservice.
+FastAPI microservice for the optional Python fraud predictor. The current
+implementation mirrors the MVP rules engine contract so the Node backend can
+switch to it with `ML_SERVICE_ENABLED=true`.
 
-Planned contract:
+## Run locally
+
+```bash
+pip install -r requirements.txt
+uvicorn app:app --reload --host 127.0.0.1 --port 8000
+```
+
+Then set these in `backend/functions/.env`:
+
+```env
+ML_SERVICE_ENABLED=true
+ML_SERVICE_URL=http://127.0.0.1:8000
+```
+
+## Contract
 
 ```http
 POST /predict
@@ -43,4 +59,8 @@ Expected response:
 }
 ```
 
-Set `ML_SERVICE_ENABLED=true` and `ML_SERVICE_URL=http://127.0.0.1:8000` in `functions/.env` when the Python service is ready.
+Health check:
+
+```http
+GET /health
+```

@@ -4,8 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
+import json
+import os
 import random
 import textwrap
+from urllib import error, parse, request
 
 
 # ============================================================================
@@ -978,6 +981,69 @@ def generate_sample_transactions():
     return pd.DataFrame(transactions).sort_values("Timestamp", ascending=False)
 
 
+DEFAULT_API_BASE_URL = "http://127.0.0.1:5001/fraudguard-dev/us-central1/api"
+API_BASE_URL = os.getenv("FRAUDGUARD_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
+API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
+
+
+def _api_get(path, params=None):
+    query = parse.urlencode(params or {})
+    url = f"{API_BASE_URL}{path}"
+    if query:
+        url = f"{url}?{query}"
+
+    with request.urlopen(url, timeout=2.5) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    return payload.get("data", payload)
+
+
+def _parse_timestamp(value):
+    if not value:
+        return datetime.now()
+
+    if isinstance(value, datetime):
+        return value
+
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return datetime.now()
+
+
+def _analysis_to_row(item, index):
+    transaction = item.get("transaction") or {}
+    analysis = item.get("analysis") or item
+    created_at = _parse_timestamp(item.get("createdAt") or analysis.get("analyzedAt"))
+    transaction_type = transaction.get("transactionType") or transaction.get("type") or "Transaction"
+    location = transaction.get("location") or transaction.get("merchant") or item.get("source") or "Unknown"
+
+    return {
+        "Transaction_ID": item.get("id") or item.get("transactionId") or f"TXN{1000 + index}",
+        "Amount": float(transaction.get("amount") or item.get("amount") or 0),
+        "Type": str(transaction_type).replace("_", " ").title(),
+        "Time": created_at.strftime("%Y-%m-%d %H:%M"),
+        "Location": location,
+        "Fraud_Score": float(analysis.get("fraudProbability") or 0),
+        "Risk_Level": str(analysis.get("riskLevel") or "LOW").upper(),
+        "Timestamp": created_at,
+    }
+
+
+@st.cache_data(ttl=30)
+def load_backend_dashboard_data(api_base_url, user_id):
+    dashboard_stats = _api_get("/dashboard/stats", {"userId": user_id})
+    analyses_payload = _api_get("/fraud/analyses", {"userId": user_id, "limit": 200})
+    analyses = analyses_payload.get("analyses", analyses_payload if isinstance(analyses_payload, list) else [])
+    rows = [_analysis_to_row(item, index) for index, item in enumerate(analyses)]
+    df = pd.DataFrame(rows)
+
+    if not df.empty:
+        df = df.sort_values("Timestamp", ascending=False)
+
+    return dashboard_stats, df
+
+
 # ============================================================================
 # FRAUD DETECTION LOGIC
 # ============================================================================
@@ -1013,10 +1079,35 @@ def get_fraud_reasons(amount, hour, transaction_type):
 # ============================================================================
 # LOAD DATA
 # ============================================================================
+if "dashboard_stats" not in st.session_state:
+    st.session_state.dashboard_stats = None
+
+if "data_source" not in st.session_state:
+    st.session_state.data_source = "sample"
+
+if "api_error" not in st.session_state:
+    st.session_state.api_error = None
+
 if "df_transactions" not in st.session_state:
-    st.session_state.df_transactions = generate_sample_transactions()
+    try:
+        dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
+        if backend_transactions.empty:
+            st.session_state.df_transactions = generate_sample_transactions()
+            st.session_state.data_source = "sample"
+            st.session_state.api_error = "Backend API connected, but no saved analyses were found yet."
+        else:
+            st.session_state.df_transactions = backend_transactions
+            st.session_state.data_source = "api"
+            st.session_state.api_error = None
+        st.session_state.dashboard_stats = dashboard_stats
+    except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        st.session_state.df_transactions = generate_sample_transactions()
+        st.session_state.dashboard_stats = None
+        st.session_state.data_source = "sample"
+        st.session_state.api_error = f"Backend API unavailable, using demo data. {exc}"
 
 df_transactions = st.session_state.df_transactions
+dashboard_stats = st.session_state.dashboard_stats or {}
 
 # ============================================================================
 # PAGE: DASHBOARD
@@ -1050,8 +1141,11 @@ if page == "Dashboard":
             unsafe_allow_html=True
         )
     with btn_col1:
-        if st.button("Regenerate", use_container_width=True):
-            st.session_state.df_transactions = generate_sample_transactions()
+        refresh_label = "Refresh API" if st.session_state.data_source == "api" else "Regenerate"
+        if st.button(refresh_label, use_container_width=True):
+            load_backend_dashboard_data.clear()
+            st.session_state.pop("df_transactions", None)
+            st.session_state.pop("dashboard_stats", None)
             st.rerun()
     with btn_col2:
         if st.button("+  Simulate transaction", type="primary", use_container_width=True):
@@ -1084,14 +1178,22 @@ if page == "Dashboard":
     )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
+    if st.session_state.data_source == "api":
+        st.caption(f"Live backend data from {API_BASE_URL} for user `{API_USER_ID}`.")
+    elif st.session_state.api_error:
+        st.warning(st.session_state.api_error)
     
     # KPI metrics aligned to reference design.
     col1, col2, col3, col4 = st.columns(4, gap="small")
     
-    high_risk_count = len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
-    total_transactions = len(df_transactions)
-    avg_fraud_score = df_transactions["Fraud_Score"].mean()
-    blocked_exposure = int(df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum())
+    use_api_stats = st.session_state.data_source == "api"
+    high_risk_count = int(dashboard_stats.get("highRiskCount", len(df_transactions[df_transactions["Risk_Level"] == "HIGH"]))) if use_api_stats else len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
+    total_transactions = int(dashboard_stats.get("totalTransactions", len(df_transactions))) if use_api_stats else len(df_transactions)
+    avg_fraud_score = float(dashboard_stats.get("averageFraudProbability", df_transactions["Fraud_Score"].mean())) if use_api_stats else df_transactions["Fraud_Score"].mean()
+    blocked_exposure = int(dashboard_stats.get(
+        "blockedExposure",
+        df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
+    )) if use_api_stats else int(df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum())
     
     with col1:
         st.markdown(

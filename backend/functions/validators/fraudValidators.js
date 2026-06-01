@@ -32,7 +32,12 @@ const savedAnalysisByIdQuerySchema = z.object({
   userId: userIdSchema
 });
 
+const dashboardStatsQuerySchema = z.object({
+  userId: userIdSchema
+});
+
 module.exports = {
+  dashboardStatsQuerySchema,
   fraudPredictionBodySchema,
   savedAnalysesQuerySchema,
   savedAnalysisByIdQuerySchema
