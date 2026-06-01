@@ -981,14 +981,20 @@ def generate_sample_transactions():
     return pd.DataFrame(transactions).sort_values("Timestamp", ascending=False)
 
 
-DEFAULT_API_BASE_URL = "http://127.0.0.1:5001/fraudguard-dev/us-central1/api"
+DEFAULT_FIREBASE_PROJECT_ID = (
+    os.getenv("FRAUDGUARD_FIREBASE_PROJECT_ID")
+    or os.getenv("GCLOUD_PROJECT")
+    or os.getenv("PROJECT_ID")
+    or "fraudguard-wie2003"
+)
+DEFAULT_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
 API_BASE_URL = os.getenv("FRAUDGUARD_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
 API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
 
 
-def _api_get(path, params=None):
+def _api_get(api_base_url, path, params=None):
     query = parse.urlencode(params or {})
-    url = f"{API_BASE_URL}{path}"
+    url = f"{api_base_url.rstrip('/')}{path}"
     if query:
         url = f"{url}?{query}"
 
@@ -1032,8 +1038,8 @@ def _analysis_to_row(item, index):
 
 @st.cache_data(ttl=30)
 def load_backend_dashboard_data(api_base_url, user_id):
-    dashboard_stats = _api_get("/dashboard/stats", {"userId": user_id})
-    analyses_payload = _api_get("/fraud/analyses", {"userId": user_id, "limit": 200})
+    dashboard_stats = _api_get(api_base_url, "/dashboard/stats", {"userId": user_id})
+    analyses_payload = _api_get(api_base_url, "/fraud/analyses", {"userId": user_id, "limit": 200})
     analyses = analyses_payload.get("analyses", analyses_payload if isinstance(analyses_payload, list) else [])
     rows = [_analysis_to_row(item, index) for index, item in enumerate(analyses)]
     df = pd.DataFrame(rows)
