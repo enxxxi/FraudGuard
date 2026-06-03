@@ -941,7 +941,8 @@ page = [item[1] for item in menu_items if item[0] == page][0]
 @st.cache_data
 def generate_sample_transactions():
     """Generate simulated bank transactions with fraud indicators."""
-    np.random.seed(42)
+    # Removed fixed seed to allow truly random simulations
+    # np.random.seed(42)
     transactions = []
     
     # Suspicious transaction patterns
@@ -987,21 +988,59 @@ DEFAULT_FIREBASE_PROJECT_ID = (
     or os.getenv("PROJECT_ID")
     or "fraudguard-wie2003"
 )
-DEFAULT_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
-API_BASE_URL = os.getenv("FRAUDGUARD_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
+FIREBASE_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
+LOCAL_API_BASE_URL = "http://127.0.0.1:8787"
+API_BASE_URL = os.getenv(
+    "FRAUDGUARD_API_BASE_URL",
+    os.getenv("FRAUDGUARD_USE_FIREBASE_EMULATOR", "").lower() in {"1", "true", "yes"}
+    and FIREBASE_API_BASE_URL
+    or LOCAL_API_BASE_URL,
+).rstrip("/")
 API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
+ML_SERVICE_URL = os.getenv("FRAUDGUARD_ML_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
-def _api_get(api_base_url, path, params=None):
+def _api_request(api_base_url, path, *, method="GET", body=None, params=None, timeout=5.0):
     query = parse.urlencode(params or {})
     url = f"{api_base_url.rstrip('/')}{path}"
     if query:
         url = f"{url}?{query}"
 
-    with request.urlopen(url, timeout=2.5) as response:
+    data = None
+    headers = {}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     return payload.get("data", payload)
+
+
+def _api_get(api_base_url, path, params=None):
+    return _api_request(api_base_url, path, params=params)
+
+
+def _api_post(api_base_url, path, body):
+    return _api_request(api_base_url, path, method="POST", body=body)
+
+
+def _predict_via_api(api_base_url, user_id, transaction):
+    return _api_post(
+        api_base_url,
+        "/fraud/predict",
+        {"userId": user_id, **transaction},
+    )
+
+
+def _analyze_email_via_api(api_base_url, user_id, email_content):
+    return _api_post(
+        api_base_url,
+        "/email/analyze",
+        {"userId": user_id, "emailContent": email_content},
+    )
 
 
 def _parse_timestamp(value):
@@ -1021,6 +1060,11 @@ def _analysis_to_row(item, index):
     transaction = item.get("transaction") or {}
     analysis = item.get("analysis") or item
     created_at = _parse_timestamp(item.get("createdAt") or analysis.get("analyzedAt"))
+    
+    # Use actual transaction time if available, otherwise fall back to analysis creation time
+    txn_time_str = transaction.get("transactionTime") or transaction.get("time") or item.get("createdAt") or analysis.get("analyzedAt")
+    txn_time = _parse_timestamp(txn_time_str) if txn_time_str else created_at
+    
     transaction_type = transaction.get("transactionType") or transaction.get("type") or "Transaction"
     location = transaction.get("location") or transaction.get("merchant") or item.get("source") or "Unknown"
 
@@ -1028,11 +1072,11 @@ def _analysis_to_row(item, index):
         "Transaction_ID": item.get("id") or item.get("transactionId") or f"TXN{1000 + index}",
         "Amount": float(transaction.get("amount") or item.get("amount") or 0),
         "Type": str(transaction_type).replace("_", " ").title(),
-        "Time": created_at.strftime("%Y-%m-%d %H:%M"),
+        "Time": txn_time.strftime("%Y-%m-%d %H:%M"),
         "Location": location,
         "Fraud_Score": float(analysis.get("fraudProbability") or 0),
         "Risk_Level": str(analysis.get("riskLevel") or "LOW").upper(),
-        "Timestamp": created_at,
+        "Timestamp": txn_time,
     }
 
 
@@ -1063,22 +1107,140 @@ def get_risk_level_color(risk):
         return "#51cf66"
 
 
-def get_fraud_reasons(amount, hour, transaction_type):
-    """Generate explainable fraud reasons."""
+def get_fraud_reasons(amount, hour, transaction_type, fraud_score=None, location=None):
+    """Generate detailed, explainable fraud reasons based on transaction features."""
     reasons = []
-    
-    if amount > 5000:
-        reasons.append("⚠️ Unusually high transaction amount")
-    if hour in [2, 3, 4, 23, 22, 21]:
-        reasons.append("⚠️ Suspicious late-night transfer")
-    if transaction_type in ["Wire", "International"]:
-        reasons.append("⚠️ High-risk transaction type")
-    if hour < 6:
-        reasons.append("⚠️ Abnormal spending behavior")
-    
+    risk_signals = []
+    normal_signals = []
+
+    # --- Time-based analysis ---
+    if hour >= 0 and hour < 5:
+        risk_signals.append(
+            f"Transaction occurred at {hour:02d}:{0:02d} AM — this is highly unusual, as the vast majority of "
+            f"legitimate transactions happen during normal waking hours. Activity between midnight and 5 AM "
+            f"is a strong indicator of unauthorized access or account compromise."
+        )
+    elif hour >= 21 or hour == 23:
+        risk_signals.append(
+            f"Transaction was initiated at {hour}:00 — late-night transactions (after 9 PM) carry elevated risk "
+            f"as they fall outside typical banking hours and are commonly associated with fraudulent activity."
+        )
+    elif 9 <= hour <= 17:
+        normal_signals.append(
+            f"Transaction time ({hour:02d}:00) falls within normal business hours, which is consistent with "
+            f"legitimate everyday spending."
+        )
+
+    # --- Amount-based analysis ---
+    if amount > 10000:
+        risk_signals.append(
+            f"The transaction amount of RM{amount:,.2f} is exceptionally high — transactions above RM10,000 "
+            f"are rare in typical consumer banking and often trigger regulatory review. This amount significantly "
+            f"deviates from average spending patterns and warrants immediate verification."
+        )
+    elif amount > 5000:
+        risk_signals.append(
+            f"RM{amount:,.2f} is a large transaction that exceeds RM5,000 — well above the average transaction "
+            f"amount. Large one-off payments are frequently exploited in scams, social engineering, and unauthorized "
+            f"account usage."
+        )
+    elif amount > 2000:
+        risk_signals.append(
+            f"Transaction amount of RM{amount:,.2f} is moderately elevated. Amounts above RM2,000 represent "
+            f"high-value activity that is worth reviewing, particularly when combined with other risk factors."
+        )
+    elif amount < 10:
+        risk_signals.append(
+            f"Very small transaction of RM{amount:,.2f} — fraudsters often test stolen cards with micro-transactions "
+            f"before making larger purchases. This probe transaction pattern is a known fraud signal."
+        )
+    else:
+        normal_signals.append(
+            f"Amount of RM{amount:,.2f} is within a typical spending range for this transaction type."
+        )
+
+    # --- Transaction type analysis ---
+    high_risk_types = ["Wire", "International Transfer", "International"]
+    medium_risk_types = ["ATM Withdrawal", "Online Purchase"]
+    low_risk_types = ["Bill Payment", "POS Payment"]
+
+    if transaction_type in high_risk_types:
+        risk_signals.append(
+            f"'{transaction_type}' is classified as a high-risk transaction type. International and wire transfers "
+            f"are irreversible once processed and are the most commonly exploited channel for financial fraud, "
+            f"money mules, and romance scams. Extra verification is strongly recommended."
+        )
+    elif transaction_type in medium_risk_types:
+        if transaction_type == "ATM Withdrawal":
+            risk_signals.append(
+                f"ATM withdrawals carry moderate fraud risk — physical card cloning, skimming devices, and PIN "
+                f"theft are established methods used to drain accounts via ATM channels."
+            )
+        elif transaction_type == "Online Purchase":
+            risk_signals.append(
+                f"Online purchases are a common vector for card-not-present fraud, where stolen card details "
+                f"are used without the physical card. This risk is heightened when combined with unusual timing "
+                f"or unfamiliar merchant locations."
+            )
+    elif transaction_type in low_risk_types:
+        normal_signals.append(
+            f"'{transaction_type}' is a relatively lower-risk transaction category, typically associated with "
+            f"routine, recurring payments."
+        )
+
+    # --- Location / merchant context ---
+    if location:
+        loc_lower = str(location).lower()
+        if any(kw in loc_lower for kw in ["crypto", "bitcoin", "exchange", "forex"]):
+            risk_signals.append(
+                f"The merchant '{location}' appears to be a cryptocurrency or foreign exchange platform. "
+                f"Transactions to crypto exchanges are frequently associated with scam fund transfers, "
+                f"as they are difficult to reverse and trace."
+            )
+        elif any(kw in loc_lower for kw in ["unknown", "unverified", "overseas"]):
+            risk_signals.append(
+                f"Merchant/location '{location}' could not be verified against known merchant databases. "
+                f"Unrecognised or unregistered merchants are a common characteristic of fraudulent transactions."
+            )
+        elif any(kw in loc_lower for kw in ["singapore", "hong kong", "international"]):
+            risk_signals.append(
+                f"Transaction location '{location}' is international. Cross-border transactions carry higher "
+                f"fraud risk and may indicate account access from an unexpected geographic region."
+            )
+
+    # --- Fraud score context ---
+    if fraud_score is not None:
+        score_pct = fraud_score * 100
+        if score_pct >= 85:
+            risk_signals.append(
+                f"The ML fraud model assigned a very high probability score of {score_pct:.1f}%. This reflects "
+                f"that the transaction's combined feature profile — including amount, time, type, and behavioral "
+                f"patterns — closely matches historical fraud cases in the training data."
+            )
+        elif score_pct >= 60:
+            risk_signals.append(
+                f"ML fraud probability is {score_pct:.1f}%, indicating significant concern. The model detected "
+                f"multiple overlapping risk factors that collectively elevate this transaction's risk profile "
+                f"beyond normal thresholds."
+            )
+
+    # Combine signals into final reasons list
+    reasons = risk_signals if risk_signals else []
+    if normal_signals and not risk_signals:
+        reasons = normal_signals
+    elif normal_signals:
+        # Append a positive note if there are also normal signals
+        reasons.append(
+            "Note: Some transaction attributes appear normal (time or amount), but the combined risk "
+            "factors above still warrant caution."
+        )
+
     if not reasons:
-        reasons.append("✓ Transaction appears normal")
-    
+        reasons.append(
+            "No specific high-risk indicators were detected. Transaction attributes including time, amount, "
+            "and type appear consistent with normal customer behaviour."
+        )
+
     return reasons
 
 
@@ -1155,20 +1317,49 @@ if page == "Dashboard":
             st.rerun()
     with btn_col2:
         if st.button("+  Simulate transaction", type="primary", use_container_width=True):
-            st.session_state.df_transactions = pd.concat(
-                [st.session_state.df_transactions, generate_sample_transactions().head(1)],
-                ignore_index=True
-            )
+            sample = generate_sample_transactions().sample(1).iloc[0]
+            try:
+                result = _analyze_email_via_api(
+                    API_BASE_URL,
+                    API_USER_ID,
+                    (
+                        f"Alert: RM{sample['Amount']:,.2f} {sample['Type']} at {sample['Location']} "
+                        f"on {sample['Time']}. Location: {sample['Location']}."
+                    ),
+                )
+                # Store model reasoning for UI display
+                st.session_state.latest_explanation = result.get("explanation", "")
+                st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
+                load_backend_dashboard_data.clear()
+                st.session_state.pop("df_transactions", None)
+                st.session_state.pop("dashboard_stats", None)
+                st.session_state.api_error = None
+            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+                st.session_state.df_transactions = pd.concat(
+                    [st.session_state.df_transactions, pd.DataFrame([sample])],
+                    ignore_index=True,
+                )
             st.rerun()
     with btn_col3:
         if st.button("Warning  Simulate fraud", use_container_width=True):
-            new_row = generate_sample_transactions().iloc[0].copy()
-            new_row["Risk_Level"] = "HIGH"
-            new_row["Fraud_Score"] = round(random.uniform(0.89, 0.99), 3)
-            st.session_state.df_transactions = pd.concat(
-                [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                ignore_index=True
-            )
+            try:
+                _analyze_email_via_api(
+                    API_BASE_URL,
+                    API_USER_ID,
+                    "Alert: RM8,500.00 was spent at Unknown Crypto Exchange on 2026-05-21 02:03. Location: Unknown.",
+                )
+                load_backend_dashboard_data.clear()
+                st.session_state.pop("df_transactions", None)
+                st.session_state.pop("dashboard_stats", None)
+                st.session_state.api_error = None
+            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+                new_row = generate_sample_transactions().iloc[0].copy()
+                new_row["Risk_Level"] = "HIGH"
+                new_row["Fraud_Score"] = round(random.uniform(0.89, 0.99), 3)
+                st.session_state.df_transactions = pd.concat(
+                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
+                    ignore_index=True,
+                )
             st.rerun()
     st.markdown(
         """
@@ -1185,7 +1376,7 @@ if page == "Dashboard":
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
-        st.caption(f"Live backend data from {API_BASE_URL} for user `{API_USER_ID}`.")
+        st.caption(f"Live ML-backed data from {API_BASE_URL} for user `{API_USER_ID}`.")
     elif st.session_state.api_error:
         st.warning(st.session_state.api_error)
     
@@ -1370,23 +1561,32 @@ if page == "Dashboard":
     for idx, row in high_risk_alerts.iterrows():
         fraud_pct = int(row["Fraud_Score"] * 100)
         hour = int(row["Time"].split()[1].split(":")[0])
-        
+        reasons = get_fraud_reasons(
+            row["Amount"], hour, row["Type"],
+            fraud_score=row["Fraud_Score"],
+            location=row["Location"]
+        )
+        # Show up to 2 reasons in summary; truncate long ones for dashboard cards
+        def _short(s, n=120):
+            return s[:n] + "…" if len(s) > n else s
+        reason_preview = " · ".join(_short(r) for r in reasons[:2])
+        amount_str = "RM{:,.2f}".format(row["Amount"])
         st.markdown(
             f"""
             <div style='background: #fff5f5; border: 1px solid #f5d7d5; border-radius: 12px; padding: 1.1rem; margin-bottom: 0.8rem;'>
                 <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;'>
                     <div style='display: flex; align-items: center; gap: 0.8rem;'>
-                        <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH · {fraud_pct}%</span>
-                        <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>RM{row["Amount"]:,.2f}</span>
-                        <span style='color: #6b7b92; font-size: 0.95rem;'>· {row["Type"]}</span>
+                        <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH &middot; {fraud_pct}%</span>
+                        <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>{amount_str}</span>
+                        <span style='color: #6b7b92; font-size: 0.95rem;'>&middot; {row["Type"]}</span>
                     </div>
                     <span style='color: #6b7b92; font-size: 0.92rem; font-weight: 500;'>{row["Time"]}</span>
                 </div>
                 <div style='display: flex; justify-content: space-between; align-items: flex-start;'>
                     <div>
                         <div style='color: #0f2a47; font-weight: 600; font-size: 0.98rem; margin-bottom: 0.3rem;'>{row["Location"]}</div>
-                        <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.4;'>
-                            {get_fraud_reasons(row["Amount"], hour, row["Type"])[0]} · {get_fraud_reasons(row["Amount"], hour, row["Type"])[1] if len(get_fraud_reasons(row["Amount"], hour, row["Type"])) > 1 else ""}
+                        <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.5;'>
+                            {reason_preview}
                         </div>
                     </div>
                 </div>
@@ -1450,69 +1650,116 @@ elif page == "Email Inbox":
             """).strip()
         )
 
-    reasons_html = "".join(f"<li>{reason.replace('⚠️ ', '').replace('✓ ', '')}</li>" for reason in selected_reasons)
+    # Build detailed reasons using the enriched function
+    selected_reasons = get_fraud_reasons(
+        selected["Amount"],
+        selected_hour,
+        selected["Type"],
+        fraud_score=selected["Fraud_Score"],
+        location=selected["Location"]
+    )
 
+    # Model-derived explanation and suspicious factors, if available
+    model_explanation = st.session_state.get("latest_explanation", "")
+    model_factors = st.session_state.get("latest_suspicious_factors", [])
+
+    # Build HTML for model explanation
+    explanation_html = (f"<p style='margin-bottom:0.6rem;color:#374151;'>{model_explanation}</p>"
+                        if model_explanation else "")
+
+    # Build HTML list for model factors
+    factors_html = ""
+    if model_factors:
+        factor_items = []
+        for factor in model_factors:
+            code = factor.get('code', '')
+            reason_text = factor.get('reason', '')
+            weight = factor.get('weight', 0)
+            weight_str = "{:.2f}".format(weight)
+            factor_items.append(
+                f"<li><strong>{code}</strong>: {reason_text} "
+                f"<span style='color:#9ca3af;font-size:0.85em;'>(ML weight: {weight_str})</span></li>"
+            )
+        factors_html = (
+            "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>ML Model Signals:</p>"
+            "<ul style='margin:0 0 0.5rem;'>" + "".join(factor_items) + "</ul>"
+        )
+
+    # Build rule-based / feature-derived reasons
+    rule_items = "".join(
+        f"<li style='margin-bottom:0.4rem;line-height:1.5;'>{r}</li>"
+        for r in selected_reasons
+    )
+    rules_html = (
+        "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>Fraud Indicators:</p>"
+        f"<ul style='margin:0;padding-left:1.2rem;'>" + rule_items + "</ul>"
+    )
+
+    # Combine all reasoning sections
+    combined_reason_html = explanation_html + factors_html + rules_html
+
+    # Render inbox HTML using combined reasoning
     inbox_html = f"""
-<div class='page-head'>
-    <div>
-        <div class='page-title'>Bank Email Inbox</div>
-        <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
-    </div>
-    <div class='page-actions'>
-        <div class='action-btn'>+<span>New email</span></div>
-        <div class='action-btn action-btn-danger'>
-            <svg width='18' height='18' viewBox='0 0 24 24' fill='none'>
-                <path d='M12 4 3 20h18L12 4Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                <path d='M12 9v5' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
-                <path d='M12 17.4v.1' stroke='currentColor' stroke-width='3' stroke-linecap='round'/>
-            </svg>
-            <span>Suspicious email</span>
+    <div class='page-head'>
+        <div>
+            <div class='page-title'>Bank Email Inbox</div>
+            <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
         </div>
-    </div>
-</div>
-<div class='inbox-shell'>
-    <div class='mail-list'>
-{''.join(mail_items_html)}
-    </div>
-    <div class='mail-detail'>
-        <div class='email-card'>
-            <div class='email-head'>
-                <div class='email-icon'>
-                    <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
-                        <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                        <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
-                    </svg>
-                </div>
-                <div>
-                    <div class='email-subject'>{selected_subject}</div>
-                    <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
-                </div>
+        <div class='page-actions'>
+            <div class='action-btn'>+<span>New email</span></div>
+            <div class='action-btn action-btn-danger'>
+                <svg width='18' height='18' viewBox='0 0 24 24' fill='none'>
+                    <path d='M12 4 3 20h18L12 4Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
+                    <path d='M12 9v5' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
+                    <path d='M12 17.4v.1' stroke='currentColor' stroke-width='3' stroke-linecap='round'/>
+                </svg>
+                <span>Suspicious email</span>
             </div>
-            <div class='email-body'>{selected_message}</div>
         </div>
+    </div>
+    <div class='inbox-shell'>
+        <div class='mail-list'>
+        {''.join(mail_items_html)}
+        </div>
+        <div class='mail-detail'>
+            <div class='email-card'>
+                <div class='email-head'>
+                    <div class='email-icon'>
+                        <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
+                            <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
+                            <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class='email-subject'>{selected_subject}</div>
+                        <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
+                    </div>
+                </div>
+                <div class='email-body'>{selected_message}</div>
+            </div>
 
-        <div class='analysis-card'>
-            <div class='analysis-top'>
-                <div class='analysis-title'>Fraud Analysis</div>
-                <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
+            <div class='analysis-card'>
+                <div class='analysis-top'>
+                    <div class='analysis-title'>Fraud Analysis</div>
+                    <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
+                </div>
+                <div class='prob-row'>
+                    <div class='prob-label'>Fraud Probability</div>
+                    <div class='prob-value'>{selected_probability:.1f}%%</div>
+                </div>
+                <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%%'></div></div>
+                <div class='detail-grid'>
+                    <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Location</div><div class='detail-value'>{selected['Location']}</div></div>
+                </div>
+                <div class='reason-label'>Why this score?</div>
+                <ul class='reason-list'>{combined_reason_html}</ul>
             </div>
-            <div class='prob-row'>
-                <div class='prob-label'>Fraud Probability</div>
-                <div class='prob-value'>{selected_probability:.1f}%</div>
-            </div>
-            <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
-            <div class='detail-grid'>
-                <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
-                <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
-                <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
-                <div class='detail-box'><div class='detail-label'>Location</div><div class='detail-value'>{selected['Location']}</div></div>
-            </div>
-            <div class='reason-label'>Why this score?</div>
-            <ul class='reason-list'>{reasons_html}</ul>
         </div>
     </div>
-</div>
-""".strip()
+    """.strip()
 
     inbox_html = "\n".join(line.lstrip() for line in inbox_html.splitlines())
     st.markdown(inbox_html, unsafe_allow_html=True)
