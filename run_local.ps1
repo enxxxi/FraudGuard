@@ -9,10 +9,13 @@ function Start-ServiceWindow {
         [string]$Command
     )
 
+    $safeWorkingDirectory = $WorkingDirectory.Replace("'", "''")
+    $safeTitle = $Title.Replace("'", "''")
+
     Start-Process powershell -ArgumentList @(
         "-NoExit",
         "-Command",
-        "cd '$WorkingDirectory'; Write-Host '=== $Title ===' -ForegroundColor Cyan; $Command"
+        "cd '$safeWorkingDirectory'; Write-Host '=== $safeTitle ===' -ForegroundColor Cyan; $Command"
     ) | Out-Null
 }
 
