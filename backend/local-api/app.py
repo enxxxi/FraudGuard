@@ -47,6 +47,8 @@ class FraudPredictBody(BaseModel):
     location: str | None = "Unknown"
     referenceId: str | None = None
     extractionWarnings: list[str] = Field(default_factory=list)
+    transactionId: str | None = None
+    deviceType: str | None = "MOBILE"
 
 
 def _success(data: Any, meta: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -103,11 +105,20 @@ def _parse_email(email_content: str) -> dict[str, Any]:
     }
 
 
-async def _predict(transaction: dict[str, Any], user_id: str) -> dict[str, Any]:
+async def _predict(transaction: dict[str, Any], user_id: str, device_type: str | None = "MOBILE") -> dict[str, Any]:
+    dt_mobile = 1 if (device_type or "MOBILE").upper() == "MOBILE" else 0
+    dt_tablet = 1 if (device_type or "MOBILE").upper() == "TABLET" else 0
     async with httpx.AsyncClient(timeout=10.0) as client:
         response = await client.post(
             f"{ML_SERVICE_URL}/predict",
-            json={"transaction": transaction, "context": {"userId": user_id}},
+            json={
+                "transaction": transaction,
+                "context": {
+                    "userId": user_id,
+                    "device_type_mobile": dt_mobile,
+                    "device_type_tablet": dt_tablet,
+                }
+            },
         )
 
     if response.status_code >= 400:
@@ -123,9 +134,10 @@ def _save_record(
     transaction: dict[str, Any],
     analysis: dict[str, Any],
     raw_email: str | None = None,
+    custom_id: str | None = None,
 ) -> dict[str, Any]:
     record = {
-        "id": str(uuid.uuid4()),
+        "id": custom_id or str(uuid.uuid4()),
         "userId": user_id,
         "source": source,
         "rawEmail": raw_email,
@@ -210,13 +222,14 @@ async def analyze_email(body: EmailAnalyzeBody) -> dict[str, Any]:
 
 @app.post("/fraud/predict")
 async def predict_fraud(body: FraudPredictBody) -> dict[str, Any]:
-    transaction = body.model_dump(exclude={"userId"})
-    analysis = await _predict(transaction, body.userId)
+    transaction = body.model_dump(exclude={"userId", "transactionId", "deviceType"})
+    analysis = await _predict(transaction, body.userId, device_type=body.deviceType)
     saved = _save_record(
         user_id=body.userId,
         source="api",
         transaction=transaction,
         analysis=analysis,
+        custom_id=body.transactionId,
     )
     return _success({"transactionId": saved["id"], **analysis})
 

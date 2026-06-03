@@ -14,7 +14,36 @@ from urllib import error, parse, request
 # ============================================================================
 # PAGE CONFIG & INITIALIZATION
 # ============================================================================
-st.set_page_config(page_title="FraudGuard - Fraud Detection Dashboard", layout="wide")
+st.set_page_config(page_title="FraudGuard - Fraud Detection Dashboard", layout="wide", initial_sidebar_state="expanded")
+
+# Handle query parameters for page navigation
+params = {}
+try:
+    params = st.query_params
+except AttributeError:
+    try:
+        experimental_get = getattr(st, "experimental_get_query_params", None)
+        if experimental_get is not None:
+            params = experimental_get()
+    except Exception:
+        pass
+
+if "page" in params:
+    nav_page = params["page"]
+    if isinstance(nav_page, list):
+        nav_page = nav_page[0] if nav_page else ""
+    valid_pages = ["Dashboard", "Email Inbox", "Transactions", "Analytics"]
+    if nav_page in valid_pages:
+        st.session_state.nav_radio = nav_page
+    try:
+        st.query_params.clear()
+    except AttributeError:
+        try:
+            experimental_set = getattr(st, "experimental_set_query_params", None)
+            if experimental_set is not None:
+                experimental_set()
+        except Exception:
+            pass
 
 # Custom CSS to mirror reference dashboard design
 st.markdown("""
@@ -41,7 +70,7 @@ st.markdown("""
     }
 
     [data-testid="collapsedControl"] {
-        display: flex !important;
+        display: none !important;
         position: fixed;
         top: 0.8rem;
         left: 0.8rem;
@@ -1056,6 +1085,110 @@ def _parse_timestamp(value):
         return datetime.now()
 
 
+@st.dialog("Manually Input Transaction Details")
+def manual_transaction_dialog():
+    if "manual_txn_id" not in st.session_state:
+        st.session_state.manual_txn_id = f"TXN{random.randint(1000, 9999)}"
+        
+    txn_id = st.text_input("Transaction ID", key="manual_txn_id")
+    amount = st.number_input("Transaction Amount (RM)", min_value=0.01, value=150.0, step=10.0)
+    payment_channel = st.selectbox(
+        "Payment Channel",
+        options=["CARD_PURCHASE", "FUND_TRANSFER", "ATM_WITHDRAWAL", "ONLINE_PURCHASE"]
+    )
+    device_type = st.selectbox(
+        "Device Type",
+        options=["MOBILE", "TABLET", "DESKTOP"]
+    )
+    
+    d = st.date_input("Transaction Date", value=datetime.now().date())
+    t = st.time_input("Transaction Time", value=datetime.now().time())
+    
+    dt_combined = datetime.combine(d, t)
+    transaction_time_str = dt_combined.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    submit = st.button("Submit Transaction", type="primary")
+    if submit:
+        payload = {
+            "amount": amount,
+            "transactionType": payment_channel,
+            "deviceType": device_type,
+            "transactionTime": transaction_time_str,
+            "transactionId": txn_id,
+            "merchant": "Manual Entry Merchant",
+            "location": "Manual Entry Location"
+        }
+        try:
+            result = _predict_via_api(API_BASE_URL, API_USER_ID, payload)
+            st.session_state.latest_explanation = result.get("explanation", "")
+            st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
+            st.session_state.pop("manual_txn_id", None)
+            load_backend_dashboard_data.clear()
+            st.session_state.pop("df_transactions", None)
+            st.session_state.pop("dashboard_stats", None)
+            st.rerun()
+        except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+            fraud_score = 0.08
+            if amount >= 5000:
+                fraud_score += 0.35
+            elif amount >= 1500:
+                fraud_score += 0.18
+            if payment_channel in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+                fraud_score += 0.12
+            
+            risk_lvl = "HIGH" if fraud_score >= 0.7 else ("MEDIUM" if fraud_score >= 0.4 else "LOW")
+            
+            factors = []
+            if amount >= 5000:
+                factors.append({
+                    "code": "UNUSUALLY_HIGH_AMOUNT",
+                    "reason": f"Transaction amount of {amount} is above the high-risk threshold.",
+                    "weight": 0.35,
+                    "field": "amount",
+                    "observedValue": amount
+                })
+            elif amount >= 1500:
+                factors.append({
+                    "code": "ELEVATED_AMOUNT",
+                    "reason": f"Transaction amount of {amount} is above the medium-risk threshold.",
+                    "weight": 0.18,
+                    "field": "amount",
+                    "observedValue": amount
+                })
+            if payment_channel in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+                factors.append({
+                    "code": "RISKY_TRANSACTION_TYPE",
+                    "reason": f"Transaction type {payment_channel} has elevated fraud exposure.",
+                    "weight": 0.12,
+                    "field": "transactionType",
+                    "observedValue": payment_channel
+                })
+            
+            st.session_state.latest_suspicious_factors = factors
+            st.session_state.latest_explanation = (
+                f"{risk_lvl} risk based on {len(factors)} suspicious factor(s)."
+                if factors
+                else "LOW risk because no major suspicious behavior was detected."
+            )
+            
+            new_row = {
+                "Transaction_ID": txn_id,
+                "Amount": amount,
+                "Type": payment_channel.replace("_", " ").title(),
+                "Time": dt_combined.strftime("%Y-%m-%d %H:%M"),
+                "Location": "Manual Entry Location",
+                "Fraud_Score": round(min(fraud_score, 0.98), 3),
+                "Risk_Level": risk_lvl,
+                "Timestamp": dt_combined
+            }
+            st.session_state.pop("manual_txn_id", None)
+            st.session_state.df_transactions = pd.concat(
+                [st.session_state.df_transactions, pd.DataFrame([new_row])],
+                ignore_index=True,
+            )
+            st.rerun()
+
+
 def _analysis_to_row(item, index):
     transaction = item.get("transaction") or {}
     analysis = item.get("analysis") or item
@@ -1297,8 +1430,8 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    title_col, btn_col1, btn_col2, btn_col3 = st.columns(
-        [8.2, 1.15, 1.75, 1.55],
+    title_col, btn_col = st.columns(
+        [10.9, 1.75],
         gap="small",
         vertical_alignment="center",
     )
@@ -1308,15 +1441,8 @@ if page == "Dashboard":
             "<div class='hero-sub'>Live risk analysis of incoming bank email notifications.</div>",
             unsafe_allow_html=True
         )
-    with btn_col1:
-        refresh_label = "Refresh API" if st.session_state.data_source == "api" else "Regenerate"
-        if st.button(refresh_label, use_container_width=True):
-            load_backend_dashboard_data.clear()
-            st.session_state.pop("df_transactions", None)
-            st.session_state.pop("dashboard_stats", None)
-            st.rerun()
-    with btn_col2:
-        if st.button("+  Simulate transaction", type="primary", use_container_width=True):
+    with btn_col:
+        if st.button("+ transaction", type="primary", use_container_width=True):
             sample = generate_sample_transactions().sample(1).iloc[0]
             try:
                 result = _analyze_email_via_api(
@@ -1340,39 +1466,6 @@ if page == "Dashboard":
                     ignore_index=True,
                 )
             st.rerun()
-    with btn_col3:
-        if st.button("Warning  Simulate fraud", use_container_width=True):
-            try:
-                _analyze_email_via_api(
-                    API_BASE_URL,
-                    API_USER_ID,
-                    "Alert: RM8,500.00 was spent at Unknown Crypto Exchange on 2026-05-21 02:03. Location: Unknown.",
-                )
-                load_backend_dashboard_data.clear()
-                st.session_state.pop("df_transactions", None)
-                st.session_state.pop("dashboard_stats", None)
-                st.session_state.api_error = None
-            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
-                new_row = generate_sample_transactions().iloc[0].copy()
-                new_row["Risk_Level"] = "HIGH"
-                new_row["Fraud_Score"] = round(random.uniform(0.89, 0.99), 3)
-                st.session_state.df_transactions = pd.concat(
-                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                    ignore_index=True,
-                )
-            st.rerun()
-    st.markdown(
-        """
-        <style>
-            div[data-testid="column"]:nth-of-type(4) .stButton > button {
-                background: #e5333f;
-                color: #ffffff;
-                border-color: #e5333f;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
@@ -1384,13 +1477,34 @@ if page == "Dashboard":
     col1, col2, col3, col4 = st.columns(4, gap="small")
     
     use_api_stats = st.session_state.data_source == "api"
-    high_risk_count = int(dashboard_stats.get("highRiskCount", len(df_transactions[df_transactions["Risk_Level"] == "HIGH"]))) if use_api_stats else len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
-    total_transactions = int(dashboard_stats.get("totalTransactions", len(df_transactions))) if use_api_stats else len(df_transactions)
-    avg_fraud_score = float(dashboard_stats.get("averageFraudProbability", df_transactions["Fraud_Score"].mean())) if use_api_stats else df_transactions["Fraud_Score"].mean()
-    blocked_exposure = int(dashboard_stats.get(
-        "blockedExposure",
-        df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
-    )) if use_api_stats else int(df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum())
+    
+    # Safely compute fallback and extract metrics to avoid type-checker errors on None values
+    local_high_risk = len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
+    local_total = len(df_transactions)
+    
+    local_avg_mean = df_transactions["Fraud_Score"].mean()
+    local_avg_score = float(local_avg_mean) if pd.notna(local_avg_mean) else 0.0
+    
+    local_blocked_sum = df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
+    local_blocked_exp = int(local_blocked_sum) if pd.notna(local_blocked_sum) else 0
+
+    if use_api_stats:
+        hr_val = dashboard_stats.get("highRiskCount")
+        high_risk_count = int(hr_val) if hr_val is not None else local_high_risk
+        
+        tot_val = dashboard_stats.get("totalTransactions")
+        total_transactions = int(tot_val) if tot_val is not None else local_total
+        
+        avg_val = dashboard_stats.get("averageFraudProbability")
+        avg_fraud_score = float(avg_val) if avg_val is not None else local_avg_score
+        
+        block_val = dashboard_stats.get("blockedExposure")
+        blocked_exposure = int(block_val) if block_val is not None else local_blocked_exp
+    else:
+        high_risk_count = local_high_risk
+        total_transactions = local_total
+        avg_fraud_score = local_avg_score
+        blocked_exposure = local_blocked_exp
     
     with col1:
         st.markdown(
@@ -1541,15 +1655,23 @@ if page == "Dashboard":
     st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
     
     # Recent high-risk alerts section
-    alert_title_col, alert_view_col = st.columns([20, 1])
+    alert_title_col, alert_view_col = st.columns(
+        [10, 1.2],
+        gap="small",
+        vertical_alignment="center",
+    )
     with alert_title_col:
         st.markdown(
-            "<div style='font-size: 1.8rem; font-weight: 700; color: #0f2a47;'>Recent high-risk alerts</div>",
+            "<div style='font-size: 1.8rem; font-weight: 700; color: #0f2a47; margin: 0;'>Recent high-risk alerts</div>",
             unsafe_allow_html=True
         )
     with alert_view_col:
         st.markdown(
-            "<div style='text-align: right; font-size: 1rem; color: #5f7a93; font-weight: 600; cursor: pointer;'>View all →</div>",
+            """
+            <div style='text-align: right; margin: 0; padding: 0;'>
+                <a href='/?page=Transactions' target='_self' style='text-decoration: none; color: #5f7a93; font-weight: 600; font-size: 1rem; white-space: nowrap;'>View all →</a>
+            </div>
+            """,
             unsafe_allow_html=True
         )
     
@@ -1698,25 +1820,26 @@ elif page == "Email Inbox":
     # Combine all reasoning sections
     combined_reason_html = explanation_html + factors_html + rules_html
 
+    # Render the head section using columns or custom layout
+    head_col, btn_col = st.columns([7, 3], vertical_alignment="center")
+    with head_col:
+        st.markdown(
+            """
+            <div class='page-head-title' style='padding: 2.2rem 0 1.65rem;'>
+                <div class='page-title'>Bank Email Inbox</div>
+                <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with btn_col:
+        # Streamlit button for "+ New email"
+        # The CSS globally applies to .stButton > button giving it a beautiful styled look
+        if st.button("+ New email", key="new_email_btn", use_container_width=True):
+            manual_transaction_dialog()
+
     # Render inbox HTML using combined reasoning
     inbox_html = f"""
-    <div class='page-head'>
-        <div>
-            <div class='page-title'>Bank Email Inbox</div>
-            <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
-        </div>
-        <div class='page-actions'>
-            <div class='action-btn'>+<span>New email</span></div>
-            <div class='action-btn action-btn-danger'>
-                <svg width='18' height='18' viewBox='0 0 24 24' fill='none'>
-                    <path d='M12 4 3 20h18L12 4Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                    <path d='M12 9v5' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
-                    <path d='M12 17.4v.1' stroke='currentColor' stroke-width='3' stroke-linecap='round'/>
-                </svg>
-                <span>Suspicious email</span>
-            </div>
-        </div>
-    </div>
     <div class='inbox-shell'>
         <div class='mail-list'>
         {''.join(mail_items_html)}
@@ -1745,14 +1868,14 @@ elif page == "Email Inbox":
                 </div>
                 <div class='prob-row'>
                     <div class='prob-label'>Fraud Probability</div>
-                    <div class='prob-value'>{selected_probability:.1f}%%</div>
+                    <div class='prob-value'>{selected_probability:.1f}%</div>
                 </div>
-                <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%%'></div></div>
+                <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
                 <div class='detail-grid'>
                     <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
                     <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
                     <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
-                    <div class='detail-box'><div class='detail-label'>Location</div><div class='detail-value'>{selected['Location']}</div></div>
                 </div>
                 <div class='reason-label'>Why this score?</div>
                 <ul class='reason-list'>{combined_reason_html}</ul>
