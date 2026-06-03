@@ -5,21 +5,34 @@ const { analyzeTransaction } = require("../services/fraudDetectionService");
 const { saveAnalysis } = require("../services/transactionRepository");
 
 const analyzeEmail = asyncHandler(async (req, res) => {
-  const { emailContent, userId = "demo-user" } = req.body;
+  const {
+    userId = "demo-user",
+    emailContent,
+    sender,
+    subject,
+    body
+  } = req.body;
+  const email = emailContent
+    ? { sender, subject, body: emailContent }
+    : { sender, subject, body };
 
-  const extractedTransaction = parseBankEmail(emailContent);
-  const analysis = await analyzeTransaction(extractedTransaction, { userId });
-  const saved = await saveAnalysis({
-    source: "email",
-    rawEmail: emailContent,
-    transaction: extractedTransaction,
-    analysis,
-    userId
-  });
+  const extraction = parseBankEmail(email);
+  const analysis = await analyzeTransaction(extraction.fraudTransaction, { userId });
+  const saved = extraction.fraudTransaction.amount === null
+    ? null
+    : await saveAnalysis({
+      source: "email",
+      rawEmail: email.body,
+      transaction: extraction.fraudTransaction,
+      analysis,
+      userId
+    });
 
   sendSuccess(res, {
-    transactionId: saved.id,
-    extractedTransaction,
+    transactionId: saved?.id || null,
+    parsedTransaction: extraction.parsedTransaction,
+    extractionMetadata: extraction.metadata,
+    fraudAnalysisInput: extraction.fraudTransaction,
     ...analysis
   });
 });

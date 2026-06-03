@@ -1,27 +1,5 @@
-const { AppError } = require("../utils/AppError");
-
+const DEFAULT_CURRENCY = "MYR";
 const DEFAULT_TIMEZONE_OFFSET = "+08:00";
-
-const CURRENCY_MAP = {
-  RM: "MYR",
-  MYR: "MYR",
-  USD: "USD",
-  "$": "USD",
-  SGD: "SGD",
-  EUR: "EUR",
-  GBP: "GBP",
-  INR: "INR",
-  RS: "INR"
-};
-
-const TRANSACTION_TYPES = [
-  { pattern: /\b(atm|cash withdrawal|withdrawn|withdrawal)\b/i, value: "ATM_WITHDRAWAL" },
-  { pattern: /\b(online|ecommerce|e-commerce|web purchase)\b/i, value: "ONLINE_PURCHASE" },
-  { pattern: /\b(pos|card|debit card|credit card|purchase|spent|charged)\b/i, value: "CARD_PURCHASE" },
-  { pattern: /\b(transfer|sent|duitnow|ibg|instant transfer|third party)\b/i, value: "FUND_TRANSFER" },
-  { pattern: /\b(bill|utility|jompay|payment)\b/i, value: "BILL_PAYMENT" },
-  { pattern: /\b(credited|refund|deposit|received)\b/i, value: "ACCOUNT_CREDIT" }
-];
 
 const MONTHS = {
   jan: 0,
@@ -50,242 +28,290 @@ const MONTHS = {
   december: 11
 };
 
-const normalizeContent = (content) => content
+const TRANSACTION_TYPE_PATTERNS = [
+  { pattern: /\b(debit card purchase|card purchase|purchase|spent|charged)\b/i, standard: "purchase", fraudType: "CARD_PURCHASE", direction: "DEBIT" },
+  { pattern: /\b(transferred|transfer|duitnow|ibg|sent)\b/i, standard: "transfer", fraudType: "FUND_TRANSFER", direction: "DEBIT" },
+  { pattern: /\b(withdrawal|withdrawn|atm)\b/i, standard: "withdrawal", fraudType: "ATM_WITHDRAWAL", direction: "DEBIT" },
+  { pattern: /\b(bill payment|jompay|paid)\b/i, standard: "payment", fraudType: "BILL_PAYMENT", direction: "DEBIT" },
+  { pattern: /\b(credited|received|refund|deposit)\b/i, standard: "credit", fraudType: "ACCOUNT_CREDIT", direction: "CREDIT" }
+];
+
+const BANK_FORMATS = [
+  {
+    name: "transfer_to_merchant_time",
+    pattern: /\bRM\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+(?:was\s+)?transferred\s+to\s+(.+?)\s+at\s+(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i,
+    extract: (match) => ({
+      amount: toAmount(match[1]),
+      transactionType: "transfer",
+      merchant: cleanValue(match[2]),
+      transactionTime: normalizeDisplayTime(match[3])
+    })
+  },
+  {
+    name: "spent_at_merchant_datetime",
+    pattern: /\byou\s+spent\s+RM\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\s+(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i,
+    extract: (match) => ({
+      amount: toAmount(match[1]),
+      transactionType: "purchase",
+      merchant: cleanValue(match[2]),
+      transactionDate: cleanValue(match[3]),
+      transactionTime: normalizeDisplayTime(match[4])
+    })
+  },
+  {
+    name: "transfer_of_amount_ref",
+    pattern: /\btransfer\s+of\s+RM\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+completed\b/i,
+    extract: (match) => ({
+      amount: toAmount(match[1]),
+      transactionType: "transfer"
+    })
+  },
+  {
+    name: "card_purchase_at_merchant",
+    pattern: /\bdebit\s+card\s+purchase\s+RM\s*([0-9,]+(?:\.[0-9]{1,2})?)\s+at\s+(.+?)(?=\s+(?:on|at|ref|reference)\b|[.;]|$)/i,
+    extract: (match) => ({
+      amount: toAmount(match[1]),
+      transactionType: "purchase",
+      merchant: cleanValue(match[2])
+    })
+  }
+];
+
+const normalizeContent = (value) => String(value || "")
   .replace(/\r?\n/g, " ")
   .replace(/\s+/g, " ")
   .trim();
 
-const cleanLabelValue = (value) => value
-  .replace(/\s+/g, " ")
+const cleanEmailAddress = (value) => {
+  const text = normalizeContent(value);
+  const markdownMatch = text.match(/\[([^\]]+)]\(mailto:[^)]+\)/i);
+  return markdownMatch ? markdownMatch[1] : text;
+};
+
+const cleanValue = (value) => normalizeContent(value)
   .replace(/^[\s:.-]+|[\s:.-]+$/g, "")
+  .replace(/\s+(?:successfully|completed)$/i, "")
   .trim();
 
-const normalizeCurrency = (value) => {
-  if (!value) return null;
-  const key = value.replace(/\./g, "").toUpperCase();
-  return CURRENCY_MAP[key] || key;
+const toAmount = (value) => {
+  const amount = Number(String(value || "").replace(/,/g, ""));
+  return Number.isFinite(amount) ? amount : null;
 };
 
-const isCurrencyToken = (value) => {
-  if (!value) return false;
-  return Boolean(normalizeCurrency(value) && CURRENCY_MAP[value.replace(/\./g, "").toUpperCase()]);
+const normalizeDisplayTime = (value) => {
+  const match = normalizeContent(value).match(/\b(\d{1,2})(?::(\d{2}))\s*(AM|PM)?\b/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const hour = String(Number(match[1])).padStart(2, "0");
+  const minute = String(Number(match[2] || 0)).padStart(2, "0");
+  const meridiem = match[3] ? ` ${match[3].toUpperCase()}` : "";
+
+  return `${hour}:${minute}${meridiem}`;
 };
 
-const toAmountNumber = (value) => Number(value.replace(/,/g, ""));
+const buildIsoDateTime = (datePart, timePart) => {
+  if (!timePart) {
+    return null;
+  }
 
-const findAmountCandidates = (content) => {
-  const candidates = [];
-  const currencyPattern = "(RM|MYR|USD|SGD|EUR|GBP|INR|Rs\\.?|\\$)";
-  const amountPattern = "([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)";
+  const timeMatch = timePart.match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)?\b/i);
+  if (!timeMatch) {
+    return null;
+  }
 
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2]);
+  const meridiem = timeMatch[3]?.toUpperCase();
+
+  if (meridiem === "PM" && hour < 12) hour += 12;
+  if (meridiem === "AM" && hour === 12) hour = 0;
+
+  const dateMatch = normalizeContent(datePart).match(/\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b/i);
+  const now = new Date();
+  const day = dateMatch ? Number(dateMatch[1]) : now.getDate();
+  const month = dateMatch ? MONTHS[dateMatch[2].toLowerCase()] : now.getMonth();
+  const year = dateMatch ? Number(dateMatch[3]) : now.getFullYear();
+
+  if (month === undefined) {
+    return null;
+  }
+
+  const paddedMonth = String(month + 1).padStart(2, "0");
+  const paddedDay = String(day).padStart(2, "0");
+  const paddedHour = String(hour).padStart(2, "0");
+  const paddedMinute = String(minute).padStart(2, "0");
+  const date = new Date(`${year}-${paddedMonth}-${paddedDay}T${paddedHour}:${paddedMinute}:00${DEFAULT_TIMEZONE_OFFSET}`);
+
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
+const extractAmount = (content) => {
   const patterns = [
-    new RegExp(`\\b(?:amount|amt|transaction amount|purchase of|payment of|transfer of|withdrawal of)\\s*:?\\s*${currencyPattern}?\\s*${amountPattern}\\b`, "gi"),
-    new RegExp(`\\b${currencyPattern}\\s*${amountPattern}\\b`, "gi"),
-    new RegExp(`\\b${amountPattern}\\s*${currencyPattern}\\b`, "gi")
+    /\b(?:amount|amt|purchase|spent|transfer\s+of|payment\s+of)\s*:?\s*RM\s*([0-9,]+(?:\.[0-9]{1,2})?)\b/i,
+    /\bRM\s*([0-9,]+(?:\.[0-9]{1,2})?)\b/i
   ];
 
   for (const pattern of patterns) {
-    let match = pattern.exec(content);
+    const match = content.match(pattern);
 
-    while (match) {
-      const hasLabel = /amount|amt|purchase|payment|transfer|withdrawal/i.test(match[0]);
-      const currencyToken = isCurrencyToken(match[1]) ? match[1] : (isCurrencyToken(match[2]) ? match[2] : null);
-      const currency = normalizeCurrency(currencyToken);
-      const rawAmount = match[2] && !Number.isNaN(Number(match[2].replace(/,/g, ""))) ? match[2] : match[1];
-
-      candidates.push({
-        amount: toAmountNumber(rawAmount),
-        currency,
-        score: (currency ? 2 : 0) + (hasLabel ? 2 : 0),
-        index: match.index
-      });
-
-      match = pattern.exec(content);
+    if (match) {
+      return toAmount(match[1]);
     }
   }
 
-  return candidates
-    .filter((candidate) => Number.isFinite(candidate.amount) && candidate.amount > 0)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-};
-
-const extractAmountAndCurrency = (content) => {
-  const [bestCandidate] = findAmountCandidates(content);
-
-  if (!bestCandidate) {
-    return { amount: null, currency: "MYR" };
-  }
-
-  return {
-    amount: bestCandidate.amount,
-    currency: bestCandidate.currency || "MYR"
-  };
-};
-
-const inferDirection = (content) => {
-  if (/\b(credited|refund|refunded|deposit|received|cashback|reversal)\b/i.test(content)) {
-    return "CREDIT";
-  }
-
-  if (/\b(debited|spent|paid|charged|withdrawn|purchase|sent|transfer to|transfer of)\b/i.test(content)) {
-    return "DEBIT";
-  }
-
-  return "UNKNOWN";
+  return null;
 };
 
 const extractTransactionType = (content) => {
-  const match = TRANSACTION_TYPES.find((item) => item.pattern.test(content));
-  return match ? match.value : "UNKNOWN";
-};
+  const match = TRANSACTION_TYPE_PATTERNS.find((item) => item.pattern.test(content));
 
-const buildDate = ({ year, month, day, hour = 0, minute = 0, meridiem = null }) => {
-  let normalizedHour = Number(hour);
-  const normalizedMinute = Number(minute);
-  const normalizedMeridiem = meridiem?.toUpperCase();
-
-  if (normalizedMeridiem === "PM" && normalizedHour < 12) normalizedHour += 12;
-  if (normalizedMeridiem === "AM" && normalizedHour === 12) normalizedHour = 0;
-
-  const paddedMonth = String(Number(month) + 1).padStart(2, "0");
-  const paddedDay = String(Number(day)).padStart(2, "0");
-  const paddedHour = String(normalizedHour).padStart(2, "0");
-  const paddedMinute = String(normalizedMinute).padStart(2, "0");
-
-  return new Date(`${year}-${paddedMonth}-${paddedDay}T${paddedHour}:${paddedMinute}:00${DEFAULT_TIMEZONE_OFFSET}`);
-};
-
-const extractTransactionTime = (content) => {
-  const isoDateMatch = content.match(/\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?/);
-  if (isoDateMatch) {
-    return new Date(isoDateMatch[0]).toISOString();
-  }
-
-  const numericDateMatch = content.match(/\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
-  if (numericDateMatch) {
-    const year = numericDateMatch[3].length === 2 ? `20${numericDateMatch[3]}` : numericDateMatch[3];
-    const date = buildDate({
-      year,
-      month: Number(numericDateMatch[2]) - 1,
-      day: numericDateMatch[1],
-      hour: numericDateMatch[4] || 0,
-      minute: numericDateMatch[5] || 0,
-      meridiem: numericDateMatch[6]
-    });
-
-    return date.toISOString();
-  }
-
-  const textDateMatch = content.match(/\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})(?:\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?)?/i);
-  if (textDateMatch) {
-    const month = MONTHS[textDateMatch[2].toLowerCase()];
-
-    if (month !== undefined) {
-      const date = buildDate({
-        year: textDateMatch[3],
-        month,
-        day: textDateMatch[1],
-        hour: textDateMatch[4] || 0,
-        minute: textDateMatch[5] || 0,
-        meridiem: textDateMatch[6]
-      });
-
-      return date.toISOString();
-    }
-  }
-
-  const timeOnlyMatch = content.match(/\b(?:at|time)\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\b/i);
-  const date = new Date();
-
-  if (timeOnlyMatch) {
-    let hour = Number(timeOnlyMatch[1]);
-    const minute = Number(timeOnlyMatch[2] || 0);
-    const meridiem = timeOnlyMatch[3]?.toUpperCase();
-
-    if (meridiem === "PM" && hour < 12) hour += 12;
-    if (meridiem === "AM" && hour === 12) hour = 0;
-
-    date.setHours(hour, minute, 0, 0);
-  }
-
-  return date.toISOString();
+  return {
+    transactionType: match?.standard || null,
+    fraudType: match?.fraudType || "UNKNOWN",
+    direction: match?.direction || "UNKNOWN"
+  };
 };
 
 const extractMerchant = (content) => {
-  const merchantPatterns = [
-    /\b(?:merchant|payee|biller)\s*[:\-]\s*([A-Za-z0-9&.'/@() -]{3,80}?)(?=\s+(?:on|at|location|ref|reference|txn|transaction)\b|[,;]|$)/i,
-    /\bcredited\s+to\s+your\s+account\s+from\s+([A-Za-z0-9&.'/@() -]{3,80}?)(?=\s+(?:on|at|location|ref|reference|txn|transaction)\b|[,;]|$)/i,
-    /\b(?:at|from|to)\s+([A-Za-z0-9&.'/@() -]{3,80}?)(?=\s+(?:on|at|for|location|ref|reference|txn|transaction)\b|[,;]|$)/i,
-    /\b(?:POS|card purchase|online purchase)\s+(?:at\s+)?([A-Za-z0-9&.'/@() -]{3,80}?)(?=[,;]|$)/i
+  const patterns = [
+    /\btransferred\s+to\s+(.+?)\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\b/i,
+    /\b(?:spent|purchase|charged)\s+RM\s*[0-9,]+(?:\.[0-9]{1,2})?\s+at\s+(.+?)(?=\s+on\s+\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|\s+(?:ref|reference)\b|[.;]|$)/i,
+    /\bat\s+(.+?)(?=\s+(?:on|ref|reference|time)\b|[.;]|$)/i,
+    /\bto\s+(.+?)(?=\s+(?:on|at|ref|reference)\b|[.;]|$)/i,
+    /\bmerchant\s*[:\-]\s*(.+?)(?=\s+(?:on|at|ref|reference)\b|[.;]|$)/i
   ];
 
-  for (const pattern of merchantPatterns) {
+  for (const pattern of patterns) {
     const match = content.match(pattern);
 
     if (match) {
-      return cleanLabelValue(match[1]);
+      return cleanValue(match[1]);
     }
   }
 
-  return "Unknown Merchant";
+  return null;
 };
 
-const extractLocation = (content) => {
-  const locationPatterns = [
-    /\b(?:location|place)\s*[:\-]\s*([A-Za-z0-9,.'/@() -]{3,80}?)(?=\s+(?:on|at|ref|reference|txn|transaction)\b|[.;]|$)/i,
-    /\b(?:in|near)\s+([A-Za-z,.' -]{3,80}?)(?=\s+(?:on|at|ref|reference|txn|transaction)\b|[.;]|$)/i
+const extractTransactionTime = (content) => {
+  const timePatterns = [
+    /\bon\s+\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}\s+(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i,
+    /\b(?:at|time)\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)\b/i,
+    /\b(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i
   ];
 
-  for (const pattern of locationPatterns) {
+  for (const pattern of timePatterns) {
     const match = content.match(pattern);
 
     if (match) {
-      return cleanLabelValue(match[1]);
+      return normalizeDisplayTime(match[1]);
     }
   }
 
-  return "Unknown";
+  return null;
 };
 
-const extractReferenceId = (content) => {
-  const match = content.match(/\b(?:ref|reference|txn id|transaction id|approval code)\s*[:#-]?\s*([A-Za-z0-9-]{4,40})\b/i);
-  return match ? match[1] : null;
+const extractTransactionDate = (content) => {
+  const match = content.match(/\bon\s+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b/i);
+  return match ? cleanValue(match[1]) : null;
 };
 
-const buildExtractionWarnings = (transaction) => {
+const extractReferenceNumber = (content) => {
+  const match = content.match(/\b(?:reference|ref|txn|transaction\s+id|approval\s+code)\b\s*[:#-]?\s*([A-Z0-9-]{4,40})\b/i);
+  return match ? match[1].toUpperCase() : null;
+};
+
+const runFormatExtractors = (content) => {
+  for (const format of BANK_FORMATS) {
+    const match = content.match(format.pattern);
+
+    if (match) {
+      return {
+        matchedFormat: format.name,
+        fields: format.extract(match)
+      };
+    }
+  }
+
+  return {
+    matchedFormat: "generic_regex",
+    fields: {}
+  };
+};
+
+const buildWarnings = (parsed) => {
   const warnings = [];
 
-  if (transaction.transactionType === "UNKNOWN") warnings.push("Transaction type could not be confidently detected.");
-  if (transaction.direction === "UNKNOWN") warnings.push("Transaction direction could not be confidently detected.");
-  if (transaction.merchant === "Unknown Merchant") warnings.push("Merchant could not be confidently detected.");
-  if (transaction.location === "Unknown") warnings.push("Location could not be confidently detected.");
+  if (parsed.amount === null) warnings.push("Amount could not be extracted.");
+  if (parsed.transactionType === null) warnings.push("Transaction type could not be extracted.");
+  if (parsed.merchant === null) warnings.push("Merchant could not be extracted.");
+  if (parsed.transactionTime === null) warnings.push("Transaction time could not be extracted.");
+  if (parsed.referenceNumber === null) warnings.push("Reference number could not be extracted.");
 
   return warnings;
 };
 
-const parseBankEmail = (content) => {
-  const normalizedContent = normalizeContent(content);
-  const { amount, currency } = extractAmountAndCurrency(normalizedContent);
+const buildFraudTransaction = (parsed, inferred) => ({
+  amount: parsed.amount,
+  currency: parsed.currency,
+  transactionType: inferred.fraudType,
+  direction: inferred.direction,
+  merchant: parsed.merchant || "Unknown Merchant",
+  location: "Unknown",
+  transactionTime: buildIsoDateTime(parsed.transactionDate, parsed.transactionTime) || new Date().toISOString(),
+  referenceId: parsed.referenceNumber,
+  extractionWarnings: parsed.extractionWarnings
+});
 
-  if (!amount) {
-    throw new AppError("Could not extract transaction amount from email content.", 422);
-  }
+const parseBankEmail = (emailInput) => {
+  const email = typeof emailInput === "string"
+    ? { sender: null, subject: null, body: emailInput }
+    : emailInput || {};
+  const sender = cleanEmailAddress(email.sender);
+  const subject = normalizeContent(email.subject);
+  const body = normalizeContent(email.body || email.emailContent);
+  const content = normalizeContent(`${subject} ${body}`);
+  const { matchedFormat, fields } = runFormatExtractors(content);
+  const inferred = extractTransactionType(content);
 
-  const transaction = {
-    amount,
-    currency,
-    transactionType: extractTransactionType(normalizedContent),
-    direction: inferDirection(normalizedContent),
-    transactionTime: extractTransactionTime(normalizedContent),
-    merchant: extractMerchant(normalizedContent),
-    location: extractLocation(normalizedContent),
-    referenceId: extractReferenceId(normalizedContent)
+  const parsed = {
+    amount: fields.amount ?? extractAmount(content),
+    transactionType: fields.transactionType || inferred.transactionType,
+    merchant: fields.merchant ?? extractMerchant(content),
+    transactionTime: fields.transactionTime ?? extractTransactionTime(content),
+    referenceNumber: fields.referenceNumber ?? extractReferenceNumber(content),
+    currency: DEFAULT_CURRENCY,
+    sender: sender || null,
+    subject: subject || null,
+    transactionDate: fields.transactionDate ?? extractTransactionDate(content),
+    matchedFormat
   };
 
+  parsed.extractionWarnings = buildWarnings(parsed);
+
   return {
-    ...transaction,
-    extractionWarnings: buildExtractionWarnings(transaction)
+    parsedTransaction: {
+      amount: parsed.amount,
+      transactionType: parsed.transactionType,
+      merchant: parsed.merchant,
+      transactionTime: parsed.transactionTime,
+      referenceNumber: parsed.referenceNumber
+    },
+    metadata: {
+      sender: parsed.sender,
+      subject: parsed.subject,
+      currency: parsed.currency,
+      transactionDate: parsed.transactionDate,
+      matchedFormat: parsed.matchedFormat,
+      extractionWarnings: parsed.extractionWarnings
+    },
+    fraudTransaction: buildFraudTransaction(parsed, inferred)
   };
 };
 
-module.exports = { parseBankEmail };
+module.exports = {
+  parseBankEmail,
+  parseEmailForTransaction: parseBankEmail
+};

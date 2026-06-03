@@ -990,6 +990,7 @@ DEFAULT_FIREBASE_PROJECT_ID = (
 DEFAULT_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
 API_BASE_URL = os.getenv("FRAUDGUARD_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
 API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
+API_TIMEOUT_SECONDS = float(os.getenv("FRAUDGUARD_API_TIMEOUT_SECONDS", "10"))
 
 
 def _api_get(api_base_url, path, params=None):
@@ -998,7 +999,23 @@ def _api_get(api_base_url, path, params=None):
     if query:
         url = f"{url}?{query}"
 
-    with request.urlopen(url, timeout=2.5) as response:
+    with request.urlopen(url, timeout=API_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    return payload.get("data", payload)
+
+
+def _api_post(api_base_url, path, data):
+    url = f"{api_base_url.rstrip('/')}{path}"
+    body = json.dumps(data).encode("utf-8")
+    api_request = request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with request.urlopen(api_request, timeout=API_TIMEOUT_SECONDS) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     return payload.get("data", payload)
@@ -1048,6 +1065,56 @@ def load_backend_dashboard_data(api_base_url, user_id):
         df = df.sort_values("Timestamp", ascending=False)
 
     return dashboard_stats, df
+
+
+def refresh_backend_dashboard_state():
+    load_backend_dashboard_data.clear()
+    dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
+
+    if backend_transactions.empty:
+        st.session_state.df_transactions = generate_sample_transactions()
+        st.session_state.data_source = "sample"
+        st.session_state.api_error = "Backend API connected, but no saved analyses were found yet."
+    else:
+        st.session_state.df_transactions = backend_transactions
+        st.session_state.data_source = "api"
+        st.session_state.api_error = None
+
+    st.session_state.dashboard_stats = dashboard_stats
+
+
+def _map_demo_type_to_backend(transaction_type):
+    normalized_type = str(transaction_type or "").lower()
+
+    if "withdraw" in normalized_type or "cash advance" in normalized_type:
+        return "ATM_WITHDRAWAL"
+    if "wire" in normalized_type or "transfer" in normalized_type:
+        return "FUND_TRANSFER"
+    if "bill" in normalized_type or "card payment" in normalized_type:
+        return "BILL_PAYMENT"
+    if "purchase" in normalized_type:
+        return "ONLINE_PURCHASE"
+
+    return "CARD_PURCHASE"
+
+
+def _row_to_prediction_payload(row):
+    return {
+        "userId": API_USER_ID,
+        "amount": float(row["Amount"]),
+        "currency": "MYR",
+        "transactionType": _map_demo_type_to_backend(row["Type"]),
+        "direction": "DEBIT",
+        "transactionTime": row["Timestamp"].isoformat(),
+        "merchant": str(row["Location"]),
+        "location": str(row["Location"]),
+        "referenceId": str(row["Transaction_ID"]),
+    }
+
+
+def submit_simulated_transaction(row):
+    _api_post(API_BASE_URL, "/fraud/predict", _row_to_prediction_payload(row))
+    refresh_backend_dashboard_state()
 
 
 # ============================================================================
@@ -1149,26 +1216,47 @@ if page == "Dashboard":
     with btn_col1:
         refresh_label = "Refresh API" if st.session_state.data_source == "api" else "Regenerate"
         if st.button(refresh_label, use_container_width=True):
-            load_backend_dashboard_data.clear()
-            st.session_state.pop("df_transactions", None)
-            st.session_state.pop("dashboard_stats", None)
+            try:
+                refresh_backend_dashboard_state()
+            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                load_backend_dashboard_data.clear()
+                st.session_state.df_transactions = generate_sample_transactions()
+                st.session_state.dashboard_stats = None
+                st.session_state.data_source = "sample"
+                st.session_state.api_error = f"Backend API unavailable, using demo data. {exc}"
             st.rerun()
     with btn_col2:
         if st.button("+  Simulate transaction", type="primary", use_container_width=True):
-            st.session_state.df_transactions = pd.concat(
-                [st.session_state.df_transactions, generate_sample_transactions().head(1)],
-                ignore_index=True
-            )
+            new_row = generate_sample_transactions().head(1).iloc[0].copy()
+            try:
+                submit_simulated_transaction(new_row)
+            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                st.session_state.df_transactions = pd.concat(
+                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
+                    ignore_index=True
+                )
+                st.session_state.data_source = "sample"
+                st.session_state.api_error = f"Backend save failed, updated local demo data only. {exc}"
             st.rerun()
     with btn_col3:
         if st.button("Warning  Simulate fraud", use_container_width=True):
             new_row = generate_sample_transactions().iloc[0].copy()
             new_row["Risk_Level"] = "HIGH"
             new_row["Fraud_Score"] = round(random.uniform(0.89, 0.99), 3)
-            st.session_state.df_transactions = pd.concat(
-                [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                ignore_index=True
-            )
+            new_row["Amount"] = max(float(new_row["Amount"]), 12500)
+            new_row["Type"] = "Wire"
+            new_row["Location"] = "Offshore Crypto Exchange"
+            new_row["Timestamp"] = datetime.now().replace(hour=2, minute=3, second=0, microsecond=0)
+            new_row["Time"] = new_row["Timestamp"].strftime("%Y-%m-%d %H:%M")
+            try:
+                submit_simulated_transaction(new_row)
+            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                st.session_state.df_transactions = pd.concat(
+                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
+                    ignore_index=True
+                )
+                st.session_state.data_source = "sample"
+                st.session_state.api_error = f"Backend save failed, updated local demo data only. {exc}"
             st.rerun()
     st.markdown(
         """
