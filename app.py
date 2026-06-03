@@ -891,6 +891,34 @@ st.markdown("""
         border-radius: 999px;
         background: #e7283b;
     }
+
+    div[data-testid="element-container"]:has(.view-all-trigger) + div[data-testid="element-container"] button {
+        background: transparent !important;
+        border: none !important;
+        color: #5f7a93 !important;
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        padding: 0 !important;
+        height: auto !important;
+        min-height: auto !important;
+        width: 100% !important;
+        text-align: right !important;
+        box-shadow: none !important;
+        cursor: pointer !important;
+        line-height: inherit !important;
+        display: inline-block !important;
+    }
+    div[data-testid="element-container"]:has(.view-all-trigger) + div[data-testid="element-container"] button:hover {
+        color: #0f2a47 !important;
+        text-decoration: underline !important;
+    }
+    div[data-testid="element-container"]:has(.view-all-trigger) + div[data-testid="element-container"] button p {
+        color: inherit !important;
+        font-size: inherit !important;
+        font-weight: inherit !important;
+        margin: 0 !important;
+        text-align: right !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -925,6 +953,15 @@ menu_items = [
     ("Transactions", "Transactions"),
     ("Analytics", "Analytics"),
 ]
+
+if st.session_state.get("go_to_transactions", False):
+    st.session_state.nav_radio = "Transactions"
+    st.session_state.go_to_transactions = False
+elif "page" in st.query_params:
+    requested_page = st.query_params["page"]
+    if requested_page in [item[0] for item in menu_items]:
+        st.session_state.nav_radio = requested_page
+    del st.query_params["page"]
 
 page = st.sidebar.radio(
     "Navigate",
@@ -1190,10 +1227,6 @@ if page == "Dashboard":
         """
         <div class='top-strip'>
             <div class='top-strip-left'>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" stroke="currentColor" stroke-width="2"/>
-                    <path d="M9 4v16" stroke="currentColor" stroke-width="2"/>
-                </svg>
                 <strong>FraudGuard</strong><span>/ Real-time monitoring</span>
             </div>
             <div class='top-strip-right'><span class='status-dot'></span>Engine online</div>
@@ -1202,8 +1235,8 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    title_col, btn_col1, btn_col2, btn_col3 = st.columns(
-        [8.2, 1.15, 1.75, 1.55],
+    title_col, btn_col = st.columns(
+        [10.4, 1.6],
         gap="small",
         vertical_alignment="center",
     )
@@ -1213,20 +1246,8 @@ if page == "Dashboard":
             "<div class='hero-sub'>Live risk analysis of incoming bank email notifications.</div>",
             unsafe_allow_html=True
         )
-    with btn_col1:
-        refresh_label = "Refresh API" if st.session_state.data_source == "api" else "Regenerate"
-        if st.button(refresh_label, use_container_width=True):
-            try:
-                refresh_backend_dashboard_state()
-            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-                load_backend_dashboard_data.clear()
-                st.session_state.df_transactions = generate_sample_transactions()
-                st.session_state.dashboard_stats = None
-                st.session_state.data_source = "sample"
-                st.session_state.api_error = f"Backend API unavailable, using demo data. {exc}"
-            st.rerun()
-    with btn_col2:
-        if st.button("+  Simulate transaction", type="primary", use_container_width=True):
+    with btn_col:
+        if st.button("+ transaction", type="primary", use_container_width=True):
             new_row = generate_sample_transactions().head(1).iloc[0].copy()
             try:
                 submit_simulated_transaction(new_row)
@@ -1238,38 +1259,6 @@ if page == "Dashboard":
                 st.session_state.data_source = "sample"
                 st.session_state.api_error = f"Backend save failed, updated local demo data only. {exc}"
             st.rerun()
-    with btn_col3:
-        if st.button("Warning  Simulate fraud", use_container_width=True):
-            new_row = generate_sample_transactions().iloc[0].copy()
-            new_row["Risk_Level"] = "HIGH"
-            new_row["Fraud_Score"] = round(random.uniform(0.89, 0.99), 3)
-            new_row["Amount"] = max(float(new_row["Amount"]), 12500)
-            new_row["Type"] = "Wire"
-            new_row["Location"] = "Offshore Crypto Exchange"
-            new_row["Timestamp"] = datetime.now().replace(hour=2, minute=3, second=0, microsecond=0)
-            new_row["Time"] = new_row["Timestamp"].strftime("%Y-%m-%d %H:%M")
-            try:
-                submit_simulated_transaction(new_row)
-            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-                st.session_state.df_transactions = pd.concat(
-                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                    ignore_index=True
-                )
-                st.session_state.data_source = "sample"
-                st.session_state.api_error = f"Backend save failed, updated local demo data only. {exc}"
-            st.rerun()
-    st.markdown(
-        """
-        <style>
-            div[data-testid="column"]:nth-of-type(4) .stButton > button {
-                background: #e5333f;
-                color: #ffffff;
-                border-color: #e5333f;
-            }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
@@ -1438,17 +1427,17 @@ if page == "Dashboard":
     st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
     
     # Recent high-risk alerts section
-    alert_title_col, alert_view_col = st.columns([20, 1])
+    alert_title_col, alert_view_col = st.columns([10.2, 1.8], vertical_alignment="center")
     with alert_title_col:
         st.markdown(
             "<div style='font-size: 1.8rem; font-weight: 700; color: #0f2a47;'>Recent high-risk alerts</div>",
             unsafe_allow_html=True
         )
     with alert_view_col:
-        st.markdown(
-            "<div style='text-align: right; font-size: 1rem; color: #5f7a93; font-weight: 600; cursor: pointer;'>View all →</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown("<div class='view-all-trigger'></div>", unsafe_allow_html=True)
+        if st.button("View all →", key="view_all_btn", use_container_width=True):
+            st.session_state.go_to_transactions = True
+            st.rerun()
     
     st.markdown("<div style='height:0.6rem'></div>", unsafe_allow_html=True)
     
@@ -1492,10 +1481,6 @@ elif page == "Email Inbox":
         """
         <div class='top-strip'>
             <div class='top-strip-left'>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" stroke="currentColor" stroke-width="2"/>
-                    <path d="M9 4v16" stroke="currentColor" stroke-width="2"/>
-                </svg>
                 <strong>FraudGuard</strong><span>/ Real-time monitoring</span>
             </div>
             <div class='top-strip-right'><span class='status-dot'></span>Engine online</div>
@@ -1504,7 +1489,17 @@ elif page == "Email Inbox":
         unsafe_allow_html=True,
     )
 
-    selected = df_transactions.iloc[0]
+    # Determine which email is selected based on query parameters
+    selected_index = df_transactions.index[0]
+    if "email_index" in st.query_params:
+        try:
+            val = int(st.query_params["email_index"])
+            if val in df_transactions.index:
+                selected_index = val
+        except ValueError:
+            pass
+
+    selected = df_transactions.loc[selected_index]
     selected_hour = int(selected["Time"].split()[1].split(":")[0])
     selected_reasons = get_fraud_reasons(selected["Amount"], selected_hour, selected["Type"])
     selected_risk = selected["Risk_Level"].lower()
@@ -1523,18 +1518,20 @@ elif page == "Email Inbox":
         subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
         preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
         item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
-        active_class = " mail-item-active" if len(mail_items_html) == 0 else ""
+        active_class = " mail-item-active" if item_index == selected_index else ""
         mail_items_html.append(
             textwrap.dedent(f"""
-            <div class='mail-item{active_class}'>
-                <div class='mail-row'>
-                    <div class='mail-sender'>alerts@maybank2u.com.my</div>
-                    <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
+            <a href='?page=Email+Inbox&email_index={item_index}' target='_self' style='text-decoration: none; color: inherit; display: block;'>
+                <div class='mail-item{active_class}'>
+                    <div class='mail-row'>
+                        <div class='mail-sender'>alerts@maybank2u.com.my</div>
+                        <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
+                    </div>
+                    <div class='mail-subject'>{subject}</div>
+                    <div class='mail-preview'>{preview}</div>
+                    <div class='mail-time'>{item_date}</div>
                 </div>
-                <div class='mail-subject'>{subject}</div>
-                <div class='mail-preview'>{preview}</div>
-                <div class='mail-time'>{item_date}</div>
-            </div>
+            </a>
             """).strip()
         )
 
@@ -1548,14 +1545,6 @@ elif page == "Email Inbox":
     </div>
     <div class='page-actions'>
         <div class='action-btn'>+<span>New email</span></div>
-        <div class='action-btn action-btn-danger'>
-            <svg width='18' height='18' viewBox='0 0 24 24' fill='none'>
-                <path d='M12 4 3 20h18L12 4Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                <path d='M12 9v5' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
-                <path d='M12 17.4v.1' stroke='currentColor' stroke-width='3' stroke-linecap='round'/>
-            </svg>
-            <span>Suspicious email</span>
-        </div>
     </div>
 </div>
 <div class='inbox-shell'>
@@ -1613,10 +1602,6 @@ elif page == "Transactions":
         """
         <div class='top-strip'>
             <div class='top-strip-left'>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" stroke="currentColor" stroke-width="2"/>
-                    <path d="M9 4v16" stroke="currentColor" stroke-width="2"/>
-                </svg>
                 <strong>FraudGuard</strong><span>/ Real-time monitoring</span>
             </div>
             <div class='top-strip-right'><span class='status-dot'></span>Engine online</div>
@@ -1709,10 +1694,6 @@ elif page == "Analytics":
         """
         <div class='top-strip'>
             <div class='top-strip-left'>
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <rect x="4" y="3.5" width="16" height="17" rx="2" stroke="currentColor" stroke-width="2"/>
-                    <path d="M9 4v16" stroke="currentColor" stroke-width="2"/>
-                </svg>
                 <strong>FraudGuard</strong><span>/ Real-time monitoring</span>
             </div>
             <div class='top-strip-right'><span class='status-dot'></span>Engine online</div>
