@@ -35,6 +35,17 @@ if "page" in params:
     valid_pages = ["Dashboard", "Email Inbox", "Transactions", "Analytics"]
     if nav_page in valid_pages:
         st.session_state.nav_radio = nav_page
+
+if "email_idx" in params:
+    try:
+        idx_val = params["email_idx"]
+        if isinstance(idx_val, list):
+            idx_val = idx_val[0] if idx_val else "0"
+        st.session_state.selected_email_idx = int(idx_val)
+    except Exception:
+        pass
+
+if "page" in params or "email_idx" in params:
     try:
         st.query_params.clear()
     except AttributeError:
@@ -105,6 +116,22 @@ st.markdown("""
     .block-container {
         max-width: none;
         padding: 0 1.9rem 1.25rem;
+    }
+
+    div[data-testid="stMarkdownContainer"] .inbox-shell {
+        max-width: 100%;
+    }
+
+    @media (max-width: 960px) {
+        .inbox-shell {
+            grid-template-columns: 1fr;
+        }
+
+        .mail-list {
+            max-height: 320px;
+            border-right: 0;
+            border-bottom: 1px solid #d7e0ea;
+        }
     }
 
     section[data-testid="stSidebar"][aria-expanded="true"],
@@ -484,11 +511,12 @@ st.markdown("""
 
     .inbox-shell {
         display: grid;
-        grid-template-columns: 455px minmax(0, 1fr);
+        grid-template-columns: minmax(260px, 34%) minmax(320px, 1fr);
         min-height: 680px;
         margin: 0 -1.9rem -1.25rem;
         border-top: 1px solid #d7e0ea;
         background: #f6f9fc;
+        width: 100%;
     }
 
     .mail-list {
@@ -496,23 +524,30 @@ st.markdown("""
         border-right: 1px solid #d7e0ea;
         max-height: 680px;
         overflow-y: auto;
+        min-width: 0;
     }
 
     .mail-item {
         padding: 1.35rem 1.25rem 1.25rem;
         border-bottom: 1px solid #d7e0ea;
         background: #f8fafc;
+        cursor: pointer;
+        transition: background 150ms ease;
+    }
+
+    .mail-item:hover {
+        background: #eaeff4 !important;
     }
 
     .mail-item-active {
-        background: #dce7ef;
+        background: #dce7ef !important;
     }
 
     .mail-row {
         display: flex;
         justify-content: space-between;
-        gap: 0.85rem;
-        align-items: flex-start;
+        gap: 0.75rem;
+        align-items: center;
         margin-bottom: 0.75rem;
     }
 
@@ -520,6 +555,11 @@ st.markdown("""
         color: #4b5c73;
         font-size: 0.84rem;
         font-weight: 700;
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .risk-pill {
@@ -532,6 +572,7 @@ st.markdown("""
         font-size: 0.78rem;
         font-weight: 900;
         letter-spacing: 0.08em;
+        flex: 0 0 auto;
     }
 
     .risk-high {
@@ -568,8 +609,11 @@ st.markdown("""
     }
 
     .mail-detail {
-        padding: 1.9rem 4.2rem 2.2rem;
+        padding: 1.5rem 1.5rem 2rem;
         background: #f6f9fc;
+        min-width: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
     }
 
     .email-card,
@@ -578,7 +622,6 @@ st.markdown("""
         border: 1px solid #d7e0ea;
         border-radius: 13px;
         box-shadow: var(--shadow);
-        overflow: hidden;
     }
 
     .email-card {
@@ -632,8 +675,10 @@ st.markdown("""
 
     .analysis-top {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
         margin-bottom: 2.1rem;
     }
 
@@ -644,7 +689,7 @@ st.markdown("""
     }
 
     .risk-solid {
-        min-width: 128px;
+        min-width: 108px;
         height: 30px;
         border-radius: 7px;
         color: #ffffff;
@@ -653,6 +698,8 @@ st.markdown("""
         justify-content: center;
         font-size: 0.78rem;
         font-weight: 900;
+        flex: 0 0 auto;
+        white-space: nowrap;
     }
 
     .risk-solid-high { background: #e7283b; }
@@ -671,9 +718,11 @@ st.markdown("""
     .detail-label {
         color: #5b6c82;
         font-size: 0.77rem;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
         font-weight: 700;
+        white-space: normal;
+        word-break: break-word;
     }
 
     .prob-value {
@@ -699,7 +748,7 @@ st.markdown("""
 
     .detail-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 0.8rem;
         margin-bottom: 1.55rem;
     }
@@ -720,10 +769,14 @@ st.markdown("""
 
     .reason-list {
         margin: 0.7rem 0 0;
-        padding-left: 1rem;
         color: #001a39;
         font-size: 0.98rem;
         line-height: 1.65;
+    }
+
+    .reason-list ul {
+        margin: 0.35rem 0 0.75rem;
+        padding-left: 1.2rem;
     }
 
     .reason-list li::marker {
@@ -920,6 +973,44 @@ st.markdown("""
         border-radius: 999px;
         background: #e7283b;
     }
+
+    /* Inbox Column Styles */
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) {
+        background: #f6f9fc !important;
+        border-top: 1px solid #d7e0ea !important;
+        margin: 0 -1.9rem -1.25rem !important;
+        min-height: 680px !important;
+        gap: 0 !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) > div[data-testid="column"]:first-child {
+        background: #f8fafc !important;
+        border-right: 1px solid #d7e0ea !important;
+        max-height: 680px !important;
+        overflow-y: auto !important;
+        padding: 0 !important;
+        flex: 0 0 34% !important;
+        max-width: 34% !important;
+        min-width: 260px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) > div[data-testid="column"]:last-child {
+        padding: 1.5rem !important;
+        flex: 1 1 auto !important;
+        max-width: 66% !important;
+        background: #f6f9fc !important;
+        overflow-y: auto !important;
+        max-height: 680px !important;
+    }
+
+    /* Hide the hidden text input container */
+    div[data-testid="element-container"]:has(input[aria-label="selected_email_idx_hidden"]),
+    div[data-testid="stElementContainer"]:has(input[aria-label="selected_email_idx_hidden"]) {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1087,42 +1178,100 @@ def _parse_timestamp(value):
 
 @st.dialog("Manually Input Transaction Details")
 def manual_transaction_dialog():
-    if "manual_txn_id" not in st.session_state:
-        st.session_state.manual_txn_id = f"TXN{random.randint(1000, 9999)}"
-        
-    txn_id = st.text_input("Transaction ID", key="manual_txn_id")
-    amount = st.number_input("Transaction Amount (RM)", min_value=0.01, value=150.0, step=10.0)
-    payment_channel = st.selectbox(
-        "Payment Channel",
-        options=["CARD_PURCHASE", "FUND_TRANSFER", "ATM_WITHDRAWAL", "ONLINE_PURCHASE"]
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stDialog"] input::placeholder,
+            div[data-testid="stDialog"] textarea::placeholder {
+                color: #b8c0cc !important;
+                opacity: 1;
+            }
+            div[data-testid="stDialog"] [data-baseweb="select"] span {
+                color: inherit;
+            }
+            div[data-testid="stDialog"] [data-baseweb="select"] [aria-selected="false"] {
+                color: #b8c0cc !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    device_type = st.selectbox(
-        "Device Type",
-        options=["MOBILE", "TABLET", "DESKTOP"]
+
+    user_id = st.text_input("User ID", value="", placeholder="user id")
+    amount = st.number_input(
+        "Amount (RM)",
+        min_value=0.01,
+        value=None,
+        step=10.0,
+        placeholder="0.00",
     )
-    
-    d = st.date_input("Transaction Date", value=datetime.now().date())
-    t = st.time_input("Transaction Time", value=datetime.now().time())
-    
-    dt_combined = datetime.combine(d, t)
-    transaction_time_str = dt_combined.strftime("%Y-%m-%dT%H:%M:%SZ")
+    transaction_type = st.selectbox(
+        "Transaction Type",
+        options=["CARD_PURCHASE", "FUND_TRANSFER", "ATM_WITHDRAWAL", "ONLINE_PURCHASE"],
+        index=None,
+        placeholder="transaction type",
+    )
+    merchant = st.text_input("Merchant", value="", placeholder="merchant name")
+    location = st.text_input("Location", value="", placeholder="city or region")
+
+    date_str = st.text_input("Transaction Date", value="", placeholder="YYYY/MM/DD")
+    time_str = st.text_input("Transaction Time", value="", placeholder="HH:MM")
 
     submit = st.button("Submit Transaction", type="primary")
     if submit:
+        if not user_id.strip():
+            st.error("User ID is required.")
+            return
+        if amount is None:
+            st.error("Amount is required.")
+            return
+        if not transaction_type:
+            st.error("Transaction type is required.")
+            return
+        if not merchant.strip():
+            st.error("Merchant is required.")
+            return
+        if not location.strip():
+            st.error("Location is required.")
+            return
+        if not date_str.strip():
+            st.error("Transaction date is required.")
+            return
+        if not time_str.strip():
+            st.error("Transaction time is required.")
+            return
+
+        parsed_date = None
+        for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+            try:
+                parsed_date = datetime.strptime(date_str.strip(), fmt).date()
+                break
+            except ValueError:
+                continue
+        if parsed_date is None:
+            st.error("Enter a valid date (YYYY/MM/DD).")
+            return
+
+        try:
+            parsed_time = datetime.strptime(time_str.strip(), "%H:%M").time()
+        except ValueError:
+            st.error("Enter a valid time (HH:MM).")
+            return
+
+        dt_combined = datetime.combine(parsed_date, parsed_time)
+        transaction_time_str = dt_combined.strftime("%Y-%m-%dT%H:%M:%SZ")
+
         payload = {
             "amount": amount,
-            "transactionType": payment_channel,
-            "deviceType": device_type,
+            "transactionType": transaction_type,
             "transactionTime": transaction_time_str,
-            "transactionId": txn_id,
-            "merchant": "Manual Entry Merchant",
-            "location": "Manual Entry Location"
+            "merchant": merchant.strip(),
+            "location": location.strip(),
         }
         try:
-            result = _predict_via_api(API_BASE_URL, API_USER_ID, payload)
+            result = _predict_via_api(API_BASE_URL, user_id.strip(), payload)
             st.session_state.latest_explanation = result.get("explanation", "")
             st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
-            st.session_state.pop("manual_txn_id", None)
             load_backend_dashboard_data.clear()
             st.session_state.pop("df_transactions", None)
             st.session_state.pop("dashboard_stats", None)
@@ -1133,11 +1282,15 @@ def manual_transaction_dialog():
                 fraud_score += 0.35
             elif amount >= 1500:
                 fraud_score += 0.18
-            if payment_channel in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
                 fraud_score += 0.12
-            
+            if dt_combined.hour < 5:
+                fraud_score += 0.15
+            if location.strip().lower() in {"unknown", ""}:
+                fraud_score += 0.1
+
             risk_lvl = "HIGH" if fraud_score >= 0.7 else ("MEDIUM" if fraud_score >= 0.4 else "LOW")
-            
+
             factors = []
             if amount >= 5000:
                 factors.append({
@@ -1155,33 +1308,48 @@ def manual_transaction_dialog():
                     "field": "amount",
                     "observedValue": amount
                 })
-            if payment_channel in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
                 factors.append({
                     "code": "RISKY_TRANSACTION_TYPE",
-                    "reason": f"Transaction type {payment_channel} has elevated fraud exposure.",
+                    "reason": f"Transaction type {transaction_type} has elevated fraud exposure.",
                     "weight": 0.12,
                     "field": "transactionType",
-                    "observedValue": payment_channel
+                    "observedValue": transaction_type
                 })
-            
+            if dt_combined.hour < 5:
+                factors.append({
+                    "code": "LATE_NIGHT_TRANSACTION",
+                    "reason": "Transaction occurred between midnight and 5 AM.",
+                    "weight": 0.15,
+                    "field": "transactionTime",
+                    "observedValue": transaction_time_str
+                })
+            if location.strip().lower() == "unknown":
+                factors.append({
+                    "code": "SUSPICIOUS_LOCATION",
+                    "reason": "Location is unknown or could not be verified.",
+                    "weight": 0.1,
+                    "field": "location",
+                    "observedValue": location.strip()
+                })
+
             st.session_state.latest_suspicious_factors = factors
             st.session_state.latest_explanation = (
                 f"{risk_lvl} risk based on {len(factors)} suspicious factor(s)."
                 if factors
                 else "LOW risk because no major suspicious behavior was detected."
             )
-            
+
             new_row = {
-                "Transaction_ID": txn_id,
+                "Transaction_ID": f"TXN{random.randint(1000, 9999)}",
                 "Amount": amount,
-                "Type": payment_channel.replace("_", " ").title(),
+                "Type": transaction_type.replace("_", " ").title(),
                 "Time": dt_combined.strftime("%Y-%m-%d %H:%M"),
-                "Location": "Manual Entry Location",
+                "Location": location.strip(),
                 "Fraud_Score": round(min(fraud_score, 0.98), 3),
                 "Risk_Level": risk_lvl,
                 "Timestamp": dt_combined
             }
-            st.session_state.pop("manual_txn_id", None)
             st.session_state.df_transactions = pd.concat(
                 [st.session_state.df_transactions, pd.DataFrame([new_row])],
                 ignore_index=True,
@@ -1483,10 +1651,10 @@ if page == "Dashboard":
     local_total = len(df_transactions)
     
     local_avg_mean = df_transactions["Fraud_Score"].mean()
-    local_avg_score = float(local_avg_mean) if pd.notna(local_avg_mean) else 0.0
+    local_avg_score = float(local_avg_mean) if isinstance(local_avg_mean, (int, float, np.number)) and local_avg_mean == local_avg_mean else 0.0
     
     local_blocked_sum = df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
-    local_blocked_exp = int(local_blocked_sum) if pd.notna(local_blocked_sum) else 0
+    local_blocked_exp = int(local_blocked_sum) if isinstance(local_blocked_sum, (int, float, np.number)) and local_blocked_sum == local_blocked_sum else 0
 
     if use_api_stats:
         hr_val = dashboard_stats.get("highRiskCount")
@@ -1738,7 +1906,10 @@ elif page == "Email Inbox":
         unsafe_allow_html=True,
     )
 
-    selected = df_transactions.iloc[0]
+    selected_idx = st.session_state.get("selected_email_idx", 0)
+    if selected_idx >= len(df_transactions) or selected_idx < 0:
+        selected_idx = 0
+    selected = df_transactions.iloc[selected_idx]
     selected_hour = int(selected["Time"].split()[1].split(":")[0])
     selected_reasons = get_fraud_reasons(selected["Amount"], selected_hour, selected["Type"])
     selected_risk = selected["Risk_Level"].lower()
@@ -1750,27 +1921,6 @@ elif page == "Email Inbox":
         f"at {selected['Location']} on {selected['Timestamp'].strftime('%a %b %d %Y at %I:%M %p').lower().replace(' 0', ' ')}. "
         "If this was not you, please contact us immediately."
     )
-
-    mail_items_html = []
-    for item_index, row in df_transactions.head(6).iterrows():
-        risk_key = row["Risk_Level"].lower()
-        subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
-        preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
-        item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
-        active_class = " mail-item-active" if len(mail_items_html) == 0 else ""
-        mail_items_html.append(
-            textwrap.dedent(f"""
-            <div class='mail-item{active_class}'>
-                <div class='mail-row'>
-                    <div class='mail-sender'>alerts@maybank2u.com.my</div>
-                    <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
-                </div>
-                <div class='mail-subject'>{subject}</div>
-                <div class='mail-preview'>{preview}</div>
-                <div class='mail-time'>{item_date}</div>
-            </div>
-            """).strip()
-        )
 
     # Build detailed reasons using the enriched function
     selected_reasons = get_fraud_reasons(
@@ -1838,54 +1988,106 @@ elif page == "Email Inbox":
         if st.button("+ New email", key="new_email_btn", use_container_width=True):
             manual_transaction_dialog()
 
-    # Render inbox HTML using combined reasoning
-    inbox_html = f"""
-    <div class='inbox-shell'>
-        <div class='mail-list'>
-        {''.join(mail_items_html)}
-        </div>
-        <div class='mail-detail'>
-            <div class='email-card'>
-                <div class='email-head'>
-                    <div class='email-icon'>
-                        <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
-                            <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                            <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
-                        </svg>
-                    </div>
-                    <div>
-                        <div class='email-subject'>{selected_subject}</div>
-                        <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
-                    </div>
-                </div>
-                <div class='email-body'>{selected_message}</div>
-            </div>
+    # Split layout into two columns using st.columns
+    inbox_col1, inbox_col2 = st.columns([1, 2], gap="small")
 
-            <div class='analysis-card'>
-                <div class='analysis-top'>
-                    <div class='analysis-title'>Fraud Analysis</div>
-                    <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
-                </div>
-                <div class='prob-row'>
-                    <div class='prob-label'>Fraud Probability</div>
-                    <div class='prob-value'>{selected_probability:.1f}%</div>
-                </div>
-                <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
-                <div class='detail-grid'>
-                    <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
-                    <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
-                    <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
-                    <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
-                </div>
-                <div class='reason-label'>Why this score?</div>
-                <ul class='reason-list'>{combined_reason_html}</ul>
-            </div>
-        </div>
-    </div>
-    """.strip()
+    with inbox_col1:
+        # Hidden text input to hold selection state without taking up space
+        selected_idx_str = st.text_input(
+            "selected_email_idx_hidden",
+            value=str(selected_idx),
+            key="hidden_email_idx",
+            label_visibility="collapsed"
+        )
+        try:
+            st.session_state.selected_email_idx = int(selected_idx_str)
+        except ValueError:
+            st.session_state.selected_email_idx = 0
 
-    inbox_html = "\n".join(line.lstrip() for line in inbox_html.splitlines())
-    st.markdown(inbox_html, unsafe_allow_html=True)
+        for idx, (df_index, row) in enumerate(df_transactions.head(6).iterrows()):
+            risk_key = row["Risk_Level"].lower()
+            subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
+            preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
+            item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
+            active_class = " mail-item-active" if idx == selected_idx else ""
+            
+            onclick_js = f"""
+            const doc = (window.parent && window.parent.document) ? window.parent.document : document;
+            const labels = doc.querySelectorAll('label');
+            let input = null;
+            for (let i = 0; i < labels.length; i++) {{
+                if (labels[i].textContent.trim() === "selected_email_idx_hidden") {{
+                    const forId = labels[i].getAttribute("for");
+                    if (forId) {{
+                        input = doc.getElementById(forId);
+                    }}
+                    break;
+                }}
+            }}
+            if (input) {{
+                input.value = "{idx}";
+                input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            }}
+            """.strip().replace('\n', ' ')
+            
+            st.markdown(
+                textwrap.dedent(f"""
+                <div class='mail-item{active_class}' onclick='{onclick_js}'>
+                    <div class='mail-row'>
+                        <div class='mail-sender'>alerts@maybank2u.com.my</div>
+                        <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
+                    </div>
+                    <div class='mail-subject'>{subject}</div>
+                    <div class='mail-preview'>{preview}</div>
+                    <div class='mail-time'>{item_date}</div>
+                </div>
+                """).strip(),
+                unsafe_allow_html=True
+            )
+
+    with inbox_col2:
+        # Render the right-side cards
+        detail_html = f"""
+        <div class='email-card'>
+            <div class='email-head'>
+                <div class='email-icon'>
+                    <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
+                        <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
+                        <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
+                    </svg>
+                </div>
+                <div>
+                    <div class='email-subject'>{selected_subject}</div>
+                    <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
+                </div>
+            </div>
+            <div class='email-body'>{selected_message}</div>
+        </div>
+
+        <div class='analysis-card'>
+            <div class='analysis-top'>
+                <div class='analysis-title'>Fraud Analysis</div>
+                <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
+            </div>
+            <div class='prob-row'>
+                <div class='prob-label'>Fraud Probability</div>
+                <div class='prob-value'>{selected_probability:.1f}%</div>
+            </div>
+            <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
+            <div class='detail-grid'>
+                <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
+                <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
+                <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
+                <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
+            </div>
+            <div class='reason-label'>Why this score?</div>
+            <div class='reason-list'>{combined_reason_html}</div>
+        </div>
+        """.strip()
+
+        detail_html = "\n".join(line.lstrip() for line in detail_html.splitlines())
+        st.markdown(detail_html, unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE: TRANSACTIONS
