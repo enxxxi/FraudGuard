@@ -1115,10 +1115,18 @@ def generate_sample_transactions():
             amount = random.choice(suspicious_amounts)
             hour = random.choice(suspicious_times)
             fraud_label = "HIGH"
+            explanation = "HIGH risk based on 3 suspicious factor(s)."
+            factors = [
+                {"code": "UNUSUALLY_HIGH_AMOUNT", "reason": f"Transaction amount of {amount} is above the high-risk threshold.", "weight": 0.35},
+                {"code": "LATE_NIGHT_TRANSACTION", "reason": "Transaction occurred between midnight and 5 AM.", "weight": 0.18},
+                {"code": "UNUSUAL_MERCHANT", "reason": "Merchant name matches a suspicious or unusual merchant pattern.", "weight": 0.16}
+            ]
         else:
             amount = round(random.uniform(10, 500), 2)
             hour = random.randint(6, 20)
             fraud_label = "LOW"
+            explanation = "LOW risk because no major suspicious behavior was detected."
+            factors = []
         
         date = datetime.now() - timedelta(days=random.randint(0, 10))
         date = date.replace(hour=hour, minute=random.randint(0, 59))
@@ -1133,7 +1141,9 @@ def generate_sample_transactions():
             "Location": random.choice(locations),
             "Fraud_Score": round(fraud_score, 3),
             "Risk_Level": fraud_label if fraud_score > 0.5 else ("MEDIUM" if fraud_score > 0.3 else "LOW"),
-            "Timestamp": date
+            "Timestamp": date,
+            "Explanation": explanation,
+            "Suspicious_Factors": factors,
         })
     
     return pd.DataFrame(transactions).sort_values("Timestamp", ascending=False)
@@ -1214,7 +1224,7 @@ def _parse_timestamp(value):
         return datetime.now()
 
 
-@st.dialog("Manually Input Transaction Details")
+@st.dialog("Simulate Direct Transaction (/fraud/predict)")
 def manual_transaction_dialog():
     st.markdown(
         """
@@ -1235,25 +1245,25 @@ def manual_transaction_dialog():
         unsafe_allow_html=True,
     )
 
-    user_id = st.text_input("User ID", value="", placeholder="user id")
+    user_id = st.text_input("User ID", value=API_USER_ID, placeholder="user id")
     amount = st.number_input(
         "Amount (RM)",
         min_value=0.01,
-        value=None,
+        value=250.00,
         step=10.0,
         placeholder="0.00",
     )
     transaction_type = st.selectbox(
         "Transaction Type",
         options=["CARD_PURCHASE", "FUND_TRANSFER", "ATM_WITHDRAWAL", "ONLINE_PURCHASE"],
-        index=None,
+        index=0,
         placeholder="transaction type",
     )
-    merchant = st.text_input("Merchant", value="", placeholder="merchant name")
-    location = st.text_input("Location", value="", placeholder="city or region")
+    merchant = st.text_input("Merchant", value="Tesco Extra", placeholder="merchant name")
+    location = st.text_input("Location", value="Kuala Lumpur", placeholder="city or region")
 
-    date_str = st.text_input("Transaction Date", value="", placeholder="YYYY/MM/DD")
-    time_str = st.text_input("Transaction Time", value="", placeholder="HH:MM")
+    date_str = st.text_input("Transaction Date", value=datetime.now().strftime("%Y/%m/%d"), placeholder="YYYY/MM/DD")
+    time_str = st.text_input("Transaction Time", value=datetime.now().strftime("%H:%M"), placeholder="HH:MM")
 
     submit = st.button("Submit Transaction", type="primary")
     if submit:
@@ -1314,85 +1324,54 @@ def manual_transaction_dialog():
             st.session_state.pop("df_transactions", None)
             st.session_state.pop("dashboard_stats", None)
             st.rerun()
-        except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
-            fraud_score = 0.08
-            if amount >= 5000:
-                fraud_score += 0.35
-            elif amount >= 1500:
-                fraud_score += 0.18
-            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
-                fraud_score += 0.12
-            if dt_combined.hour < 5:
-                fraud_score += 0.15
-            if location.strip().lower() in {"unknown", ""}:
-                fraud_score += 0.1
+        except Exception as exc:
+            st.error(f"Failed to submit transaction to backend: {exc}")
 
-            risk_lvl = "HIGH" if fraud_score >= 0.7 else ("MEDIUM" if fraud_score >= 0.4 else "LOW")
 
-            factors = []
-            if amount >= 5000:
-                factors.append({
-                    "code": "UNUSUALLY_HIGH_AMOUNT",
-                    "reason": f"Transaction amount of {amount} is above the high-risk threshold.",
-                    "weight": 0.35,
-                    "field": "amount",
-                    "observedValue": amount
-                })
-            elif amount >= 1500:
-                factors.append({
-                    "code": "ELEVATED_AMOUNT",
-                    "reason": f"Transaction amount of {amount} is above the medium-risk threshold.",
-                    "weight": 0.18,
-                    "field": "amount",
-                    "observedValue": amount
-                })
-            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
-                factors.append({
-                    "code": "RISKY_TRANSACTION_TYPE",
-                    "reason": f"Transaction type {transaction_type} has elevated fraud exposure.",
-                    "weight": 0.12,
-                    "field": "transactionType",
-                    "observedValue": transaction_type
-                })
-            if dt_combined.hour < 5:
-                factors.append({
-                    "code": "LATE_NIGHT_TRANSACTION",
-                    "reason": "Transaction occurred between midnight and 5 AM.",
-                    "weight": 0.15,
-                    "field": "transactionTime",
-                    "observedValue": transaction_time_str
-                })
-            if location.strip().lower() == "unknown":
-                factors.append({
-                    "code": "SUSPICIOUS_LOCATION",
-                    "reason": "Location is unknown or could not be verified.",
-                    "weight": 0.1,
-                    "field": "location",
-                    "observedValue": location.strip()
-                })
-
-            st.session_state.latest_suspicious_factors = factors
-            st.session_state.latest_explanation = (
-                f"{risk_lvl} risk based on {len(factors)} suspicious factor(s)."
-                if factors
-                else "LOW risk because no major suspicious behavior was detected."
-            )
-
-            new_row = {
-                "Transaction_ID": f"TXN{random.randint(1000, 9999)}",
-                "Amount": amount,
-                "Type": transaction_type.replace("_", " ").title(),
-                "Time": dt_combined.strftime("%Y-%m-%d %H:%M"),
-                "Location": location.strip(),
-                "Fraud_Score": round(min(fraud_score, 0.98), 3),
-                "Risk_Level": risk_lvl,
-                "Timestamp": dt_combined
+@st.dialog("Simulate Inbound Email Ingestion (/email/analyze)")
+def manual_email_dialog():
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stDialog"] input::placeholder,
+            div[data-testid="stDialog"] textarea::placeholder {
+                color: #b8c0cc !important;
+                opacity: 1;
             }
-            st.session_state.df_transactions = pd.concat(
-                [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                ignore_index=True,
-            )
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    user_id = st.text_input("User ID", value=API_USER_ID, placeholder="user id")
+    default_content = "Alert: RM8,500.00 was spent at Unknown Crypto Exchange on 2026-06-04 02:03. Location: Unknown. If this was not you, contact support."
+    email_content = st.text_area(
+        "Raw Email Content",
+        value=default_content,
+        placeholder="Paste a bank email notification here.",
+        height=150
+    )
+
+    submit = st.button("Ingest & Analyze", type="primary")
+    if submit:
+        if not user_id.strip():
+            st.error("User ID is required.")
+            return
+        if not email_content.strip():
+            st.error("Email content is required.")
+            return
+
+        try:
+            result = _analyze_email_via_api(API_BASE_URL, user_id.strip(), email_content.strip())
+            st.session_state.latest_explanation = result.get("explanation", "")
+            st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
+            load_backend_dashboard_data.clear()
+            st.session_state.pop("df_transactions", None)
+            st.session_state.pop("dashboard_stats", None)
             st.rerun()
+        except Exception as exc:
+            st.error(f"Failed to analyze and ingest email: {exc}")
+
 
 
 def _analysis_to_row(item, index):
@@ -1416,6 +1395,8 @@ def _analysis_to_row(item, index):
         "Fraud_Score": float(analysis.get("fraudProbability") or 0),
         "Risk_Level": str(analysis.get("riskLevel") or "LOW").upper(),
         "Timestamp": txn_time,
+        "Explanation": analysis.get("explanation") or "",
+        "Suspicious_Factors": analysis.get("suspiciousFactors") or [],
     }
 
 
@@ -1479,7 +1460,12 @@ def _row_to_prediction_payload(row):
 
 
 def submit_simulated_transaction(row):
-    _api_post(API_BASE_URL, "/fraud/predict", _row_to_prediction_payload(row))
+    amount = float(row["Amount"])
+    location = str(row["Location"])
+    time_str = row["Timestamp"].strftime("%Y-%m-%d %H:%M")
+    email_content = f"Alert: RM{amount:,.2f} was spent at {location} on {time_str}. Location: {location}."
+    
+    _analyze_email_via_api(API_BASE_URL, API_USER_ID, email_content)
     refresh_backend_dashboard_state()
 
 
@@ -1682,8 +1668,8 @@ if page == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    title_col, btn_col = st.columns(
-        [10.4, 1.6],
+    title_col, btn_col1, btn_col2 = st.columns(
+        [7.4, 2.3, 2.3],
         gap="small",
         vertical_alignment="center",
     )
@@ -1693,19 +1679,12 @@ if page == "Dashboard":
             "<div class='hero-sub'>Live risk analysis of incoming bank email notifications.</div>",
             unsafe_allow_html=True
         )
-    with btn_col:
-        if st.button("+ transaction", type="primary", use_container_width=True):
-            new_row = generate_sample_transactions().head(1).iloc[0].copy()
-            try:
-                submit_simulated_transaction(new_row)
-            except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-                st.session_state.df_transactions = pd.concat(
-                    [st.session_state.df_transactions, pd.DataFrame([new_row])],
-                    ignore_index=True
-                )
-                st.session_state.data_source = "sample"
-                st.session_state.api_error = f"Backend save failed, updated local demo data only. {exc}"
-            st.rerun()
+    with btn_col1:
+        if st.button("📧 Ingest Email (/email/analyze)", type="primary", use_container_width=True):
+            manual_email_dialog()
+    with btn_col2:
+        if st.button("💳 Direct Predict (/fraud/predict)", type="primary", use_container_width=True):
+            manual_transaction_dialog()
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
@@ -1991,9 +1970,14 @@ elif page == "Email Inbox":
         location=selected["Location"]
     )
 
-    # Model-derived explanation and suspicious factors, if available
-    model_explanation = st.session_state.get("latest_explanation", "")
-    model_factors = st.session_state.get("latest_suspicious_factors", [])
+    # Model-derived explanation and suspicious factors from the selected transaction
+    model_explanation = selected.get("Explanation") if "Explanation" in selected and pd.notna(selected["Explanation"]) else ""
+    model_factors = selected.get("Suspicious_Factors") if "Suspicious_Factors" in selected and isinstance(selected["Suspicious_Factors"], list) else []
+
+    # Fallback to session state only if the selected transaction doesn't have it
+    if not model_explanation and not model_factors:
+        model_explanation = st.session_state.get("latest_explanation", "")
+        model_factors = st.session_state.get("latest_suspicious_factors", [])
 
     # Build HTML for model explanation
     explanation_html = (f"<p style='margin-bottom:0.6rem;color:#374151;'>{model_explanation}</p>"
@@ -2046,7 +2030,7 @@ elif page == "Email Inbox":
         # Streamlit button for "+ New email"
         # The CSS globally applies to .stButton > button giving it a beautiful styled look
         if st.button("+ New email", key="new_email_btn", use_container_width=True):
-            manual_transaction_dialog()
+            manual_email_dialog()
 
     # Split layout into two columns using st.columns
     inbox_col1, inbox_col2 = st.columns([1, 2], gap="small")

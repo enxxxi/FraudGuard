@@ -15,14 +15,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(BASE_DIR, "fraud_model.pkl")
 COLS_PATH = os.path.join(BASE_DIR, "feature_columns.pkl")
 
-try:
-    model = joblib.load(MODEL_PATH)
-    feature_cols = joblib.load(COLS_PATH)
-    print("Model and features loaded successfully.")
-except Exception as e:
-    print(f"Error loading model or features: {e}")
-    model = None
-    feature_cols = None
+model = None
+feature_cols = None
+
+def load_model():
+    global model, feature_cols
+    if model is None or feature_cols is None:
+        try:
+            if os.path.exists(MODEL_PATH) and os.path.exists(COLS_PATH):
+                model = joblib.load(MODEL_PATH)
+                feature_cols = joblib.load(COLS_PATH)
+                print("Model and features loaded successfully.")
+            else:
+                print("Model or feature columns file not found. Running in fallback mode.")
+        except Exception as e:
+            print(f"Error loading model or features: {e}")
+            model = None
+            feature_cols = None
+
+# Attempt initial load at startup
+load_model()
 
 class Transaction(BaseModel):
     amount: float = Field(default=0, ge=0)
@@ -245,6 +257,7 @@ def predict_fraud_score(transaction: Transaction, context: dict[str, Any], dt: d
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    load_model()
     return {
         "status": "ok",
         "service": "FraudGuard ML Service",
@@ -255,6 +268,7 @@ def health() -> dict[str, str]:
 
 @app.post("/predict")
 def predict(payload: PredictionRequest) -> dict[str, Any]:
+    load_model()
     transaction = payload.transaction
     context = payload.context
     

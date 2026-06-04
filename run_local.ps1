@@ -2,6 +2,17 @@
 $ErrorActionPreference = "Stop"
 $Root = $PSScriptRoot
 
+# Stop any existing processes on ports 8000, 8787, 8501 to prevent Errno 10048
+Write-Host "Checking for and cleaning up any existing processes on ports 8000, 8787, 8501..." -ForegroundColor Yellow
+Get-NetTCPConnection -LocalPort 8000, 8787, 8501 -ErrorAction SilentlyContinue | Where-Object { $_.State -eq "Listen" } | ForEach-Object {
+    $pidToKill = $_.OwningProcess
+    if ($pidToKill) {
+        Write-Host "Killing process $pidToKill on port $($_.LocalPort)..." -ForegroundColor Yellow
+        Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+    }
+}
+Start-Sleep -Seconds 1
+
 function Start-ServiceWindow {
     param(
         [string]$Title,
