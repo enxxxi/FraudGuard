@@ -1315,7 +1315,7 @@ def _parse_timestamp(value):
         return datetime.now()
 
 
-@st.dialog("Simulate Direct Transaction (/fraud/predict)")
+@st.dialog("Simulate Direct Transaction")
 def manual_transaction_dialog():
     st.markdown(
         """
@@ -1417,7 +1417,7 @@ def manual_transaction_dialog():
             st.error(f"Failed to submit transaction to backend: {exc}")
 
 
-@st.dialog("Simulate Inbound Email Ingestion (/email/analyze)")
+@st.dialog("Simulate Inbound Email Ingestion")
 def manual_email_dialog():
     st.markdown(
         """
@@ -1847,10 +1847,10 @@ if page == "Dashboard":
             unsafe_allow_html=True
         )
     with btn_col1:
-        if st.button("📧 Ingest Email (/email/analyze)", type="primary", use_container_width=True):
+        if st.button("📧 Ingest Email", type="primary", use_container_width=True):
             manual_email_dialog()
     with btn_col2:
-        if st.button("💳 Direct Predict (/fraud/predict)", type="primary", use_container_width=True):
+        if st.button("💳 Direct Predict", type="primary", use_container_width=True):
             manual_transaction_dialog()
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
