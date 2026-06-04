@@ -64,8 +64,8 @@ Start-Sleep -Seconds 2
 $env:FRAUDGUARD_API_BASE_URL = "http://127.0.0.1:8787"
 $env:FRAUDGUARD_USER_ID = "demo-user"
 
-Write-Host "Seeding demo transactions..."
-& (Join-Path $Root ".venv\Scripts\python.exe") (Join-Path $Root "scripts\seed_demo_data.py")
+# Write-Host "Seeding demo transactions..."
+# & (Join-Path $Root ".venv\Scripts\python.exe") (Join-Path $Root "scripts\seed_demo_data.py")
 
 Write-Host "Launching Streamlit dashboard at http://localhost:8501"
 Start-ServiceWindow -Title "Streamlit :8501" -WorkingDirectory $Root -Command "`$env:FRAUDGUARD_API_BASE_URL='http://127.0.0.1:8787'; `$env:FRAUDGUARD_USER_ID='demo-user'; .\.venv\Scripts\python.exe -m streamlit run app.py"

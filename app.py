@@ -45,7 +45,25 @@ if "email_idx" in params:
     except Exception:
         pass
 
-if "page" in params or "email_idx" in params:
+if "filter" in params:
+    try:
+        filter_val = params["filter"]
+        if isinstance(filter_val, list):
+            filter_val = filter_val[0] if filter_val else "ALL"
+        st.session_state.tx_filter = str(filter_val)
+    except Exception:
+        pass
+
+if "search" in params:
+    try:
+        search_val = params["search"]
+        if isinstance(search_val, list):
+            search_val = search_val[0] if search_val else ""
+        st.session_state.tx_search = str(search_val)
+    except Exception:
+        pass
+
+if "page" in params or "email_idx" in params or "filter" in params or "search" in params:
     try:
         st.query_params.clear()
     except AttributeError:
@@ -1207,6 +1225,7 @@ TRANSACTION_COLUMNS = [
     "Amount",
     "Type",
     "Time",
+    "Merchant",
     "Location",
     "Fraud_Score",
     "Risk_Level",
@@ -1452,13 +1471,15 @@ def _analysis_to_row(item, index):
     txn_time = _parse_timestamp(txn_time_str) if txn_time_str else created_at
 
     transaction_type = transaction.get("transactionType") or transaction.get("type") or "Transaction"
-    location = transaction.get("location") or transaction.get("merchant") or item.get("source") or "Unknown"
+    merchant = transaction.get("merchant") or transaction.get("location") or item.get("source") or "Unknown"
+    location = transaction.get("location") or "Unknown"
 
     return {
         "Transaction_ID": item.get("id") or item.get("transactionId") or f"TXN{1000 + index}",
         "Amount": float(transaction.get("amount") or item.get("amount") or 0),
         "Type": str(transaction_type).replace("_", " ").title(),
         "Time": txn_time.strftime("%Y-%m-%d %H:%M"),
+        "Merchant": merchant,
         "Location": location,
         "Fraud_Score": float(analysis.get("fraudProbability") or 0),
         "Risk_Level": str(analysis.get("riskLevel") or "LOW").upper(),
@@ -1785,7 +1806,17 @@ if "api_error" not in st.session_state:
 if "df_transactions" not in st.session_state:
     initialize_transaction_data()
 
+if "tx_filter" not in st.session_state:
+    st.session_state.tx_filter = "ALL"
+
+if "tx_search" not in st.session_state:
+    st.session_state.tx_search = ""
+
 df_transactions = st.session_state.df_transactions
+for col in TRANSACTION_COLUMNS:
+    if col not in df_transactions.columns:
+        df_transactions[col] = ""
+df_transactions["Timestamp"] = pd.to_datetime(df_transactions["Timestamp"])
 dashboard_stats = st.session_state.dashboard_stats or {}
 
 # ============================================================================
@@ -2273,9 +2304,28 @@ elif page == "Transactions":
         unsafe_allow_html=True,
     )
 
-    total_transactions = len(df_transactions)
+    tx_filter = st.session_state.get("tx_filter", "ALL")
+    tx_search = st.session_state.get("tx_search", "")
+
+    # Apply filters to df_transactions
+    filtered_df = df_transactions.copy()
+    if tx_filter != "ALL":
+        filtered_df = filtered_df[filtered_df["Risk_Level"] == tx_filter]
+
+    if tx_search:
+        search_lower = tx_search.lower()
+        filtered_df = filtered_df[
+            filtered_df["Merchant"].astype(str).str.lower().str.contains(search_lower) |
+            filtered_df["Location"].astype(str).str.lower().str.contains(search_lower) |
+            filtered_df["Type"].astype(str).str.lower().str.contains(search_lower) |
+            filtered_df["Transaction_ID"].astype(str).str.lower().str.contains(search_lower)
+        ]
+
+    total_transactions_analyzed = len(df_transactions)
+    total_transactions_displayed = len(filtered_df)
+
     table_rows = []
-    for _, row in df_transactions.iterrows():
+    for _, row in filtered_df.iterrows():
         risk_key = row["Risk_Level"].lower()
         risk_color = "#e7283b" if risk_key == "high" else ("#e39a00" if risk_key == "medium" else "#35a165")
         probability = int(round(row["Fraud_Score"] * 100))
@@ -2284,7 +2334,7 @@ elif page == "Transactions":
             f"""
 <tr>
 <td class='tx-time'>{tx_time}</td>
-<td class='tx-merchant'>{row['Location']}</td>
+<td class='tx-merchant'>{row['Merchant']}</td>
 <td class='tx-muted'>{row['Type']}</td>
 <td class='tx-muted'>{row['Location']}</td>
 <td class='tx-amount'>RM{row['Amount']:,.2f}</td>
@@ -2299,26 +2349,36 @@ elif page == "Transactions":
 """.strip()
         )
 
+    escaped_search = html.escape(tx_search)
+    quoted_search = parse.quote(tx_search)
+
+    active_all = "tx-filter-active" if tx_filter == "ALL" else ""
+    active_high = "tx-filter-active" if tx_filter == "HIGH" else ""
+    active_medium = "tx-filter-active" if tx_filter == "MEDIUM" else ""
+    active_low = "tx-filter-active" if tx_filter == "LOW" else ""
+
     tx_html = f"""
 <div class='page-head'>
     <div>
         <div class='page-title'>Transactions</div>
-        <div class='page-subtitle'>{total_transactions} of {total_transactions} transactions analyzed</div>
+        <div class='page-subtitle'>{total_transactions_displayed} of {total_transactions_analyzed} transactions analyzed</div>
     </div>
 </div>
-<div class='tx-controls'>
-    <div class='tx-search'>
-        <svg width='20' height='20' viewBox='0 0 24 24' fill='none'>
-            <circle cx='11' cy='11' r='7' stroke='currentColor' stroke-width='2'/>
-            <path d='m16.5 16.5 3.5 3.5' stroke='currentColor' stroke-width='2' stroke-linecap='round'/>
+<form action="" method="get" target="_top" style="display: flex; align-items: center; gap: 0.8rem; margin: 0 0 1.8rem; width: 100%;">
+    <input type="hidden" name="page" value="Transactions">
+    <input type="hidden" name="filter" value="{tx_filter}">
+    <div class="tx-search" style="flex: 1; height: 46px; border: 1px solid #d7e0ea; border-radius: 8px; background: #ffffff; box-shadow: var(--shadow); color: #5b6c82; display: flex; align-items: center; gap: 0.75rem; padding: 0 1rem; font-size: 0.96rem;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink: 0; color: #5b6c82;">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+            <path d="m16.5 16.5 3.5 3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
         </svg>
-        <span>Search merchant, location, type...</span>
+        <input type="text" name="search" placeholder="Search merchant, location, type..." value="{escaped_search}" style="border: none; outline: none; width: 100%; font-size: 0.96rem; color: #071f3d; background: transparent;">
     </div>
-    <div class='tx-filter tx-filter-active'>ALL</div>
-    <div class='tx-filter'>HIGH</div>
-    <div class='tx-filter'>MEDIUM</div>
-    <div class='tx-filter'>LOW</div>
-</div>
+    <a href="?page=Transactions&filter=ALL&search={quoted_search}" target="_top" class="tx-filter {active_all}" style="text-decoration: none;">ALL</a>
+    <a href="?page=Transactions&filter=HIGH&search={quoted_search}" target="_top" class="tx-filter {active_high}" style="text-decoration: none;">HIGH</a>
+    <a href="?page=Transactions&filter=MEDIUM&search={quoted_search}" target="_top" class="tx-filter {active_medium}" style="text-decoration: none;">MEDIUM</a>
+    <a href="?page=Transactions&filter=LOW&search={quoted_search}" target="_top" class="tx-filter {active_low}" style="text-decoration: none;">LOW</a>
+</form>
 <div class='tx-table-card'>
     <table class='tx-table'>
         <colgroup>
@@ -2343,7 +2403,7 @@ elif page == "Transactions":
         </thead>
         <tbody>{
             "<tr><td colspan='7' style='padding:2.5rem 1rem;text-align:center;color:#6b7b92;font-size:0.95rem;'>"
-            "No transactions yet. Ingest an email or run a direct prediction to build your demo history."
+            "No transactions match the selected filter/search."
             "</td></tr>" if not table_rows else "".join(table_rows)
         }</tbody>
     </table>
