@@ -14,7 +14,47 @@ from urllib import error, parse, request
 # ============================================================================
 # PAGE CONFIG & INITIALIZATION
 # ============================================================================
-st.set_page_config(page_title="FraudGuard - Fraud Detection Dashboard", layout="wide")
+st.set_page_config(page_title="FraudGuard - Fraud Detection Dashboard", layout="wide", initial_sidebar_state="expanded")
+
+# Handle query parameters for page navigation
+params = {}
+try:
+    params = st.query_params
+except AttributeError:
+    try:
+        experimental_get = getattr(st, "experimental_get_query_params", None)
+        if experimental_get is not None:
+            params = experimental_get()
+    except Exception:
+        pass
+
+if "page" in params:
+    nav_page = params["page"]
+    if isinstance(nav_page, list):
+        nav_page = nav_page[0] if nav_page else ""
+    valid_pages = ["Dashboard", "Email Inbox", "Transactions", "Analytics"]
+    if nav_page in valid_pages:
+        st.session_state.nav_radio = nav_page
+
+if "email_idx" in params:
+    try:
+        idx_val = params["email_idx"]
+        if isinstance(idx_val, list):
+            idx_val = idx_val[0] if idx_val else "0"
+        st.session_state.selected_email_idx = int(idx_val)
+    except Exception:
+        pass
+
+if "page" in params or "email_idx" in params:
+    try:
+        st.query_params.clear()
+    except AttributeError:
+        try:
+            experimental_set = getattr(st, "experimental_set_query_params", None)
+            if experimental_set is not None:
+                experimental_set()
+        except Exception:
+            pass
 
 # Custom CSS to mirror reference dashboard design
 st.markdown("""
@@ -41,7 +81,7 @@ st.markdown("""
     }
 
     [data-testid="collapsedControl"] {
-        display: flex !important;
+        display: none !important;
         position: fixed;
         top: 0.8rem;
         left: 0.8rem;
@@ -76,6 +116,22 @@ st.markdown("""
     .block-container {
         max-width: none;
         padding: 0 1.9rem 1.25rem;
+    }
+
+    div[data-testid="stMarkdownContainer"] .inbox-shell {
+        max-width: 100%;
+    }
+
+    @media (max-width: 960px) {
+        .inbox-shell {
+            grid-template-columns: 1fr;
+        }
+
+        .mail-list {
+            max-height: 320px;
+            border-right: 0;
+            border-bottom: 1px solid #d7e0ea;
+        }
     }
 
     section[data-testid="stSidebar"][aria-expanded="true"],
@@ -455,11 +511,12 @@ st.markdown("""
 
     .inbox-shell {
         display: grid;
-        grid-template-columns: 455px minmax(0, 1fr);
+        grid-template-columns: minmax(260px, 34%) minmax(320px, 1fr);
         min-height: 680px;
         margin: 0 -1.9rem -1.25rem;
         border-top: 1px solid #d7e0ea;
         background: #f6f9fc;
+        width: 100%;
     }
 
     .mail-list {
@@ -467,23 +524,30 @@ st.markdown("""
         border-right: 1px solid #d7e0ea;
         max-height: 680px;
         overflow-y: auto;
+        min-width: 0;
     }
 
     .mail-item {
         padding: 1.35rem 1.25rem 1.25rem;
         border-bottom: 1px solid #d7e0ea;
         background: #f8fafc;
+        cursor: pointer;
+        transition: background 150ms ease;
+    }
+
+    .mail-item:hover {
+        background: #eaeff4 !important;
     }
 
     .mail-item-active {
-        background: #dce7ef;
+        background: #dce7ef !important;
     }
 
     .mail-row {
         display: flex;
         justify-content: space-between;
-        gap: 0.85rem;
-        align-items: flex-start;
+        gap: 0.75rem;
+        align-items: center;
         margin-bottom: 0.75rem;
     }
 
@@ -491,6 +555,11 @@ st.markdown("""
         color: #4b5c73;
         font-size: 0.84rem;
         font-weight: 700;
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .risk-pill {
@@ -503,6 +572,7 @@ st.markdown("""
         font-size: 0.78rem;
         font-weight: 900;
         letter-spacing: 0.08em;
+        flex: 0 0 auto;
     }
 
     .risk-high {
@@ -539,8 +609,11 @@ st.markdown("""
     }
 
     .mail-detail {
-        padding: 1.9rem 4.2rem 2.2rem;
+        padding: 1.5rem 1.5rem 2rem;
         background: #f6f9fc;
+        min-width: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
     }
 
     .email-card,
@@ -549,7 +622,6 @@ st.markdown("""
         border: 1px solid #d7e0ea;
         border-radius: 13px;
         box-shadow: var(--shadow);
-        overflow: hidden;
     }
 
     .email-card {
@@ -603,8 +675,10 @@ st.markdown("""
 
     .analysis-top {
         display: flex;
-        align-items: flex-start;
+        align-items: center;
         justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
         margin-bottom: 2.1rem;
     }
 
@@ -615,7 +689,7 @@ st.markdown("""
     }
 
     .risk-solid {
-        min-width: 128px;
+        min-width: 108px;
         height: 30px;
         border-radius: 7px;
         color: #ffffff;
@@ -624,6 +698,8 @@ st.markdown("""
         justify-content: center;
         font-size: 0.78rem;
         font-weight: 900;
+        flex: 0 0 auto;
+        white-space: nowrap;
     }
 
     .risk-solid-high { background: #e7283b; }
@@ -642,9 +718,11 @@ st.markdown("""
     .detail-label {
         color: #5b6c82;
         font-size: 0.77rem;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
         font-weight: 700;
+        white-space: normal;
+        word-break: break-word;
     }
 
     .prob-value {
@@ -670,7 +748,7 @@ st.markdown("""
 
     .detail-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 0.8rem;
         margin-bottom: 1.55rem;
     }
@@ -691,10 +769,14 @@ st.markdown("""
 
     .reason-list {
         margin: 0.7rem 0 0;
-        padding-left: 1rem;
         color: #001a39;
         font-size: 0.98rem;
         line-height: 1.65;
+    }
+
+    .reason-list ul {
+        margin: 0.35rem 0 0.75rem;
+        padding-left: 1.2rem;
     }
 
     .reason-list li::marker {
@@ -919,6 +1001,44 @@ st.markdown("""
         margin: 0 !important;
         text-align: right !important;
     }
+
+    /* Inbox Column Styles */
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) {
+        background: #f6f9fc !important;
+        border-top: 1px solid #d7e0ea !important;
+        margin: 0 -1.9rem -1.25rem !important;
+        min-height: 680px !important;
+        gap: 0 !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) > div[data-testid="column"]:first-child {
+        background: #f8fafc !important;
+        border-right: 1px solid #d7e0ea !important;
+        max-height: 680px !important;
+        overflow-y: auto !important;
+        padding: 0 !important;
+        flex: 0 0 34% !important;
+        max-width: 34% !important;
+        min-width: 260px !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-item) > div[data-testid="column"]:last-child {
+        padding: 1.5rem !important;
+        flex: 1 1 auto !important;
+        max-width: 66% !important;
+        background: #f6f9fc !important;
+        overflow-y: auto !important;
+        max-height: 680px !important;
+    }
+
+    /* Hide the hidden text input container */
+    div[data-testid="element-container"]:has(input[aria-label="selected_email_idx_hidden"]),
+    div[data-testid="stElementContainer"]:has(input[aria-label="selected_email_idx_hidden"]) {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -978,7 +1098,8 @@ page = [item[1] for item in menu_items if item[0] == page][0]
 @st.cache_data
 def generate_sample_transactions():
     """Generate simulated bank transactions with fraud indicators."""
-    np.random.seed(42)
+    # Removed fixed seed to allow truly random simulations
+    # np.random.seed(42)
     transactions = []
     
     # Suspicious transaction patterns
@@ -1024,38 +1145,60 @@ DEFAULT_FIREBASE_PROJECT_ID = (
     or os.getenv("PROJECT_ID")
     or "fraudguard-wie2003"
 )
-DEFAULT_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
-API_BASE_URL = os.getenv("FRAUDGUARD_API_BASE_URL", DEFAULT_API_BASE_URL).rstrip("/")
+FIREBASE_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
+LOCAL_API_BASE_URL = "http://127.0.0.1:8787"
+API_BASE_URL = os.getenv(
+    "FRAUDGUARD_API_BASE_URL",
+    os.getenv("FRAUDGUARD_USE_FIREBASE_EMULATOR", "").lower() in {"1", "true", "yes"}
+    and FIREBASE_API_BASE_URL
+    or LOCAL_API_BASE_URL,
+).rstrip("/")
 API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
 API_TIMEOUT_SECONDS = float(os.getenv("FRAUDGUARD_API_TIMEOUT_SECONDS", "10"))
+ML_SERVICE_URL = os.getenv("FRAUDGUARD_ML_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
 
 
-def _api_get(api_base_url, path, params=None):
+def _api_request(api_base_url, path, *, method="GET", body=None, params=None, timeout=None):
     query = parse.urlencode(params or {})
     url = f"{api_base_url.rstrip('/')}{path}"
     if query:
         url = f"{url}?{query}"
 
-    with request.urlopen(url, timeout=API_TIMEOUT_SECONDS) as response:
+    data = None
+    headers = {}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=timeout or API_TIMEOUT_SECONDS) as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     return payload.get("data", payload)
 
 
-def _api_post(api_base_url, path, data):
-    url = f"{api_base_url.rstrip('/')}{path}"
-    body = json.dumps(data).encode("utf-8")
-    api_request = request.Request(
-        url,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+def _api_get(api_base_url, path, params=None):
+    return _api_request(api_base_url, path, params=params)
+
+
+def _api_post(api_base_url, path, body):
+    return _api_request(api_base_url, path, method="POST", body=body)
+
+
+def _predict_via_api(api_base_url, user_id, transaction):
+    return _api_post(
+        api_base_url,
+        "/fraud/predict",
+        {"userId": user_id, **transaction},
     )
 
-    with request.urlopen(api_request, timeout=API_TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read().decode("utf-8"))
 
-    return payload.get("data", payload)
+def _analyze_email_via_api(api_base_url, user_id, email_content):
+    return _api_post(
+        api_base_url,
+        "/email/analyze",
+        {"userId": user_id, "emailContent": email_content},
+    )
 
 
 def _parse_timestamp(value):
@@ -1071,10 +1214,196 @@ def _parse_timestamp(value):
         return datetime.now()
 
 
+@st.dialog("Manually Input Transaction Details")
+def manual_transaction_dialog():
+    st.markdown(
+        """
+        <style>
+            div[data-testid="stDialog"] input::placeholder,
+            div[data-testid="stDialog"] textarea::placeholder {
+                color: #b8c0cc !important;
+                opacity: 1;
+            }
+            div[data-testid="stDialog"] [data-baseweb="select"] span {
+                color: inherit;
+            }
+            div[data-testid="stDialog"] [data-baseweb="select"] [aria-selected="false"] {
+                color: #b8c0cc !important;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    user_id = st.text_input("User ID", value="", placeholder="user id")
+    amount = st.number_input(
+        "Amount (RM)",
+        min_value=0.01,
+        value=None,
+        step=10.0,
+        placeholder="0.00",
+    )
+    transaction_type = st.selectbox(
+        "Transaction Type",
+        options=["CARD_PURCHASE", "FUND_TRANSFER", "ATM_WITHDRAWAL", "ONLINE_PURCHASE"],
+        index=None,
+        placeholder="transaction type",
+    )
+    merchant = st.text_input("Merchant", value="", placeholder="merchant name")
+    location = st.text_input("Location", value="", placeholder="city or region")
+
+    date_str = st.text_input("Transaction Date", value="", placeholder="YYYY/MM/DD")
+    time_str = st.text_input("Transaction Time", value="", placeholder="HH:MM")
+
+    submit = st.button("Submit Transaction", type="primary")
+    if submit:
+        if not user_id.strip():
+            st.error("User ID is required.")
+            return
+        if amount is None:
+            st.error("Amount is required.")
+            return
+        if not transaction_type:
+            st.error("Transaction type is required.")
+            return
+        if not merchant.strip():
+            st.error("Merchant is required.")
+            return
+        if not location.strip():
+            st.error("Location is required.")
+            return
+        if not date_str.strip():
+            st.error("Transaction date is required.")
+            return
+        if not time_str.strip():
+            st.error("Transaction time is required.")
+            return
+
+        parsed_date = None
+        for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+            try:
+                parsed_date = datetime.strptime(date_str.strip(), fmt).date()
+                break
+            except ValueError:
+                continue
+        if parsed_date is None:
+            st.error("Enter a valid date (YYYY/MM/DD).")
+            return
+
+        try:
+            parsed_time = datetime.strptime(time_str.strip(), "%H:%M").time()
+        except ValueError:
+            st.error("Enter a valid time (HH:MM).")
+            return
+
+        dt_combined = datetime.combine(parsed_date, parsed_time)
+        transaction_time_str = dt_combined.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        payload = {
+            "amount": amount,
+            "transactionType": transaction_type,
+            "transactionTime": transaction_time_str,
+            "merchant": merchant.strip(),
+            "location": location.strip(),
+        }
+        try:
+            result = _predict_via_api(API_BASE_URL, user_id.strip(), payload)
+            st.session_state.latest_explanation = result.get("explanation", "")
+            st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
+            load_backend_dashboard_data.clear()
+            st.session_state.pop("df_transactions", None)
+            st.session_state.pop("dashboard_stats", None)
+            st.rerun()
+        except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError):
+            fraud_score = 0.08
+            if amount >= 5000:
+                fraud_score += 0.35
+            elif amount >= 1500:
+                fraud_score += 0.18
+            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+                fraud_score += 0.12
+            if dt_combined.hour < 5:
+                fraud_score += 0.15
+            if location.strip().lower() in {"unknown", ""}:
+                fraud_score += 0.1
+
+            risk_lvl = "HIGH" if fraud_score >= 0.7 else ("MEDIUM" if fraud_score >= 0.4 else "LOW")
+
+            factors = []
+            if amount >= 5000:
+                factors.append({
+                    "code": "UNUSUALLY_HIGH_AMOUNT",
+                    "reason": f"Transaction amount of {amount} is above the high-risk threshold.",
+                    "weight": 0.35,
+                    "field": "amount",
+                    "observedValue": amount
+                })
+            elif amount >= 1500:
+                factors.append({
+                    "code": "ELEVATED_AMOUNT",
+                    "reason": f"Transaction amount of {amount} is above the medium-risk threshold.",
+                    "weight": 0.18,
+                    "field": "amount",
+                    "observedValue": amount
+                })
+            if transaction_type in {"ATM_WITHDRAWAL", "ONLINE_PURCHASE", "FUND_TRANSFER"}:
+                factors.append({
+                    "code": "RISKY_TRANSACTION_TYPE",
+                    "reason": f"Transaction type {transaction_type} has elevated fraud exposure.",
+                    "weight": 0.12,
+                    "field": "transactionType",
+                    "observedValue": transaction_type
+                })
+            if dt_combined.hour < 5:
+                factors.append({
+                    "code": "LATE_NIGHT_TRANSACTION",
+                    "reason": "Transaction occurred between midnight and 5 AM.",
+                    "weight": 0.15,
+                    "field": "transactionTime",
+                    "observedValue": transaction_time_str
+                })
+            if location.strip().lower() == "unknown":
+                factors.append({
+                    "code": "SUSPICIOUS_LOCATION",
+                    "reason": "Location is unknown or could not be verified.",
+                    "weight": 0.1,
+                    "field": "location",
+                    "observedValue": location.strip()
+                })
+
+            st.session_state.latest_suspicious_factors = factors
+            st.session_state.latest_explanation = (
+                f"{risk_lvl} risk based on {len(factors)} suspicious factor(s)."
+                if factors
+                else "LOW risk because no major suspicious behavior was detected."
+            )
+
+            new_row = {
+                "Transaction_ID": f"TXN{random.randint(1000, 9999)}",
+                "Amount": amount,
+                "Type": transaction_type.replace("_", " ").title(),
+                "Time": dt_combined.strftime("%Y-%m-%d %H:%M"),
+                "Location": location.strip(),
+                "Fraud_Score": round(min(fraud_score, 0.98), 3),
+                "Risk_Level": risk_lvl,
+                "Timestamp": dt_combined
+            }
+            st.session_state.df_transactions = pd.concat(
+                [st.session_state.df_transactions, pd.DataFrame([new_row])],
+                ignore_index=True,
+            )
+            st.rerun()
+
+
 def _analysis_to_row(item, index):
     transaction = item.get("transaction") or {}
     analysis = item.get("analysis") or item
     created_at = _parse_timestamp(item.get("createdAt") or analysis.get("analyzedAt"))
+
+    # Use actual transaction time if available, otherwise fall back to analysis creation time
+    txn_time_str = transaction.get("transactionTime") or transaction.get("time") or item.get("createdAt") or analysis.get("analyzedAt")
+    txn_time = _parse_timestamp(txn_time_str) if txn_time_str else created_at
+
     transaction_type = transaction.get("transactionType") or transaction.get("type") or "Transaction"
     location = transaction.get("location") or transaction.get("merchant") or item.get("source") or "Unknown"
 
@@ -1082,11 +1411,11 @@ def _analysis_to_row(item, index):
         "Transaction_ID": item.get("id") or item.get("transactionId") or f"TXN{1000 + index}",
         "Amount": float(transaction.get("amount") or item.get("amount") or 0),
         "Type": str(transaction_type).replace("_", " ").title(),
-        "Time": created_at.strftime("%Y-%m-%d %H:%M"),
+        "Time": txn_time.strftime("%Y-%m-%d %H:%M"),
         "Location": location,
         "Fraud_Score": float(analysis.get("fraudProbability") or 0),
         "Risk_Level": str(analysis.get("riskLevel") or "LOW").upper(),
-        "Timestamp": created_at,
+        "Timestamp": txn_time,
     }
 
 
@@ -1167,22 +1496,140 @@ def get_risk_level_color(risk):
         return "#51cf66"
 
 
-def get_fraud_reasons(amount, hour, transaction_type):
-    """Generate explainable fraud reasons."""
+def get_fraud_reasons(amount, hour, transaction_type, fraud_score=None, location=None):
+    """Generate detailed, explainable fraud reasons based on transaction features."""
     reasons = []
-    
-    if amount > 5000:
-        reasons.append("⚠️ Unusually high transaction amount")
-    if hour in [2, 3, 4, 23, 22, 21]:
-        reasons.append("⚠️ Suspicious late-night transfer")
-    if transaction_type in ["Wire", "International"]:
-        reasons.append("⚠️ High-risk transaction type")
-    if hour < 6:
-        reasons.append("⚠️ Abnormal spending behavior")
-    
+    risk_signals = []
+    normal_signals = []
+
+    # --- Time-based analysis ---
+    if hour >= 0 and hour < 5:
+        risk_signals.append(
+            f"Transaction occurred at {hour:02d}:{0:02d} AM — this is highly unusual, as the vast majority of "
+            f"legitimate transactions happen during normal waking hours. Activity between midnight and 5 AM "
+            f"is a strong indicator of unauthorized access or account compromise."
+        )
+    elif hour >= 21 or hour == 23:
+        risk_signals.append(
+            f"Transaction was initiated at {hour}:00 — late-night transactions (after 9 PM) carry elevated risk "
+            f"as they fall outside typical banking hours and are commonly associated with fraudulent activity."
+        )
+    elif 9 <= hour <= 17:
+        normal_signals.append(
+            f"Transaction time ({hour:02d}:00) falls within normal business hours, which is consistent with "
+            f"legitimate everyday spending."
+        )
+
+    # --- Amount-based analysis ---
+    if amount > 10000:
+        risk_signals.append(
+            f"The transaction amount of RM{amount:,.2f} is exceptionally high — transactions above RM10,000 "
+            f"are rare in typical consumer banking and often trigger regulatory review. This amount significantly "
+            f"deviates from average spending patterns and warrants immediate verification."
+        )
+    elif amount > 5000:
+        risk_signals.append(
+            f"RM{amount:,.2f} is a large transaction that exceeds RM5,000 — well above the average transaction "
+            f"amount. Large one-off payments are frequently exploited in scams, social engineering, and unauthorized "
+            f"account usage."
+        )
+    elif amount > 2000:
+        risk_signals.append(
+            f"Transaction amount of RM{amount:,.2f} is moderately elevated. Amounts above RM2,000 represent "
+            f"high-value activity that is worth reviewing, particularly when combined with other risk factors."
+        )
+    elif amount < 10:
+        risk_signals.append(
+            f"Very small transaction of RM{amount:,.2f} — fraudsters often test stolen cards with micro-transactions "
+            f"before making larger purchases. This probe transaction pattern is a known fraud signal."
+        )
+    else:
+        normal_signals.append(
+            f"Amount of RM{amount:,.2f} is within a typical spending range for this transaction type."
+        )
+
+    # --- Transaction type analysis ---
+    high_risk_types = ["Wire", "International Transfer", "International"]
+    medium_risk_types = ["ATM Withdrawal", "Online Purchase"]
+    low_risk_types = ["Bill Payment", "POS Payment"]
+
+    if transaction_type in high_risk_types:
+        risk_signals.append(
+            f"'{transaction_type}' is classified as a high-risk transaction type. International and wire transfers "
+            f"are irreversible once processed and are the most commonly exploited channel for financial fraud, "
+            f"money mules, and romance scams. Extra verification is strongly recommended."
+        )
+    elif transaction_type in medium_risk_types:
+        if transaction_type == "ATM Withdrawal":
+            risk_signals.append(
+                f"ATM withdrawals carry moderate fraud risk — physical card cloning, skimming devices, and PIN "
+                f"theft are established methods used to drain accounts via ATM channels."
+            )
+        elif transaction_type == "Online Purchase":
+            risk_signals.append(
+                f"Online purchases are a common vector for card-not-present fraud, where stolen card details "
+                f"are used without the physical card. This risk is heightened when combined with unusual timing "
+                f"or unfamiliar merchant locations."
+            )
+    elif transaction_type in low_risk_types:
+        normal_signals.append(
+            f"'{transaction_type}' is a relatively lower-risk transaction category, typically associated with "
+            f"routine, recurring payments."
+        )
+
+    # --- Location / merchant context ---
+    if location:
+        loc_lower = str(location).lower()
+        if any(kw in loc_lower for kw in ["crypto", "bitcoin", "exchange", "forex"]):
+            risk_signals.append(
+                f"The merchant '{location}' appears to be a cryptocurrency or foreign exchange platform. "
+                f"Transactions to crypto exchanges are frequently associated with scam fund transfers, "
+                f"as they are difficult to reverse and trace."
+            )
+        elif any(kw in loc_lower for kw in ["unknown", "unverified", "overseas"]):
+            risk_signals.append(
+                f"Merchant/location '{location}' could not be verified against known merchant databases. "
+                f"Unrecognised or unregistered merchants are a common characteristic of fraudulent transactions."
+            )
+        elif any(kw in loc_lower for kw in ["singapore", "hong kong", "international"]):
+            risk_signals.append(
+                f"Transaction location '{location}' is international. Cross-border transactions carry higher "
+                f"fraud risk and may indicate account access from an unexpected geographic region."
+            )
+
+    # --- Fraud score context ---
+    if fraud_score is not None:
+        score_pct = fraud_score * 100
+        if score_pct >= 85:
+            risk_signals.append(
+                f"The ML fraud model assigned a very high probability score of {score_pct:.1f}%. This reflects "
+                f"that the transaction's combined feature profile — including amount, time, type, and behavioral "
+                f"patterns — closely matches historical fraud cases in the training data."
+            )
+        elif score_pct >= 60:
+            risk_signals.append(
+                f"ML fraud probability is {score_pct:.1f}%, indicating significant concern. The model detected "
+                f"multiple overlapping risk factors that collectively elevate this transaction's risk profile "
+                f"beyond normal thresholds."
+            )
+
+    # Combine signals into final reasons list
+    reasons = risk_signals if risk_signals else []
+    if normal_signals and not risk_signals:
+        reasons = normal_signals
+    elif normal_signals:
+        # Append a positive note if there are also normal signals
+        reasons.append(
+            "Note: Some transaction attributes appear normal (time or amount), but the combined risk "
+            "factors above still warrant caution."
+        )
+
     if not reasons:
-        reasons.append("✓ Transaction appears normal")
-    
+        reasons.append(
+            "No specific high-risk indicators were detected. Transaction attributes including time, amount, "
+            "and type appear consistent with normal customer behaviour."
+        )
+
     return reasons
 
 
@@ -1262,21 +1709,42 @@ if page == "Dashboard":
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
-        st.caption(f"Live backend data from {API_BASE_URL} for user `{API_USER_ID}`.")
+        st.caption(f"Live ML-backed data from {API_BASE_URL} for user `{API_USER_ID}`.")
     elif st.session_state.api_error:
         st.warning(st.session_state.api_error)
-    
+
     # KPI metrics aligned to reference design.
     col1, col2, col3, col4 = st.columns(4, gap="small")
-    
+
     use_api_stats = st.session_state.data_source == "api"
-    high_risk_count = int(dashboard_stats.get("highRiskCount", len(df_transactions[df_transactions["Risk_Level"] == "HIGH"]))) if use_api_stats else len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
-    total_transactions = int(dashboard_stats.get("totalTransactions", len(df_transactions))) if use_api_stats else len(df_transactions)
-    avg_fraud_score = float(dashboard_stats.get("averageFraudProbability", df_transactions["Fraud_Score"].mean())) if use_api_stats else df_transactions["Fraud_Score"].mean()
-    blocked_exposure = int(dashboard_stats.get(
-        "blockedExposure",
-        df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
-    )) if use_api_stats else int(df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum())
+
+    # Safely compute fallback and extract metrics to avoid type-checker errors on None values
+    local_high_risk = len(df_transactions[df_transactions["Risk_Level"] == "HIGH"])
+    local_total = len(df_transactions)
+
+    local_avg_mean = df_transactions["Fraud_Score"].mean()
+    local_avg_score = float(local_avg_mean) if isinstance(local_avg_mean, (int, float, np.number)) and local_avg_mean == local_avg_mean else 0.0
+
+    local_blocked_sum = df_transactions[df_transactions["Risk_Level"] == "HIGH"]["Amount"].sum()
+    local_blocked_exp = int(local_blocked_sum) if isinstance(local_blocked_sum, (int, float, np.number)) and local_blocked_sum == local_blocked_sum else 0
+
+    if use_api_stats:
+        hr_val = dashboard_stats.get("highRiskCount")
+        high_risk_count = int(hr_val) if hr_val is not None else local_high_risk
+
+        tot_val = dashboard_stats.get("totalTransactions")
+        total_transactions = int(tot_val) if tot_val is not None else local_total
+
+        avg_val = dashboard_stats.get("averageFraudProbability")
+        avg_fraud_score = float(avg_val) if avg_val is not None else local_avg_score
+
+        block_val = dashboard_stats.get("blockedExposure")
+        blocked_exposure = int(block_val) if block_val is not None else local_blocked_exp
+    else:
+        high_risk_count = local_high_risk
+        total_transactions = local_total
+        avg_fraud_score = local_avg_score
+        blocked_exposure = local_blocked_exp
     
     with col1:
         st.markdown(
@@ -1430,12 +1898,12 @@ if page == "Dashboard":
     alert_title_col, alert_view_col = st.columns([10.2, 1.8], vertical_alignment="center")
     with alert_title_col:
         st.markdown(
-            "<div style='font-size: 1.8rem; font-weight: 700; color: #0f2a47;'>Recent high-risk alerts</div>",
+            "<div style='font-size: 1.8rem; font-weight: 700; color: #0f2a47; margin: 0;'>Recent high-risk alerts</div>",
             unsafe_allow_html=True
         )
     with alert_view_col:
         st.markdown("<div class='view-all-trigger'></div>", unsafe_allow_html=True)
-        if st.button("View all →", key="view_all_btn", use_container_width=True):
+        if st.button("View all ->", key="view_all_btn", use_container_width=True):
             st.session_state.go_to_transactions = True
             st.rerun()
     
@@ -1447,23 +1915,32 @@ if page == "Dashboard":
     for idx, row in high_risk_alerts.iterrows():
         fraud_pct = int(row["Fraud_Score"] * 100)
         hour = int(row["Time"].split()[1].split(":")[0])
-        
+        reasons = get_fraud_reasons(
+            row["Amount"], hour, row["Type"],
+            fraud_score=row["Fraud_Score"],
+            location=row["Location"]
+        )
+        # Show up to 2 reasons in summary; truncate long ones for dashboard cards
+        def _short(s, n=120):
+            return s[:n] + "…" if len(s) > n else s
+        reason_preview = " · ".join(_short(r) for r in reasons[:2])
+        amount_str = "RM{:,.2f}".format(row["Amount"])
         st.markdown(
             f"""
             <div style='background: #fff5f5; border: 1px solid #f5d7d5; border-radius: 12px; padding: 1.1rem; margin-bottom: 0.8rem;'>
                 <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;'>
                     <div style='display: flex; align-items: center; gap: 0.8rem;'>
-                        <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH · {fraud_pct}%</span>
-                        <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>RM{row["Amount"]:,.2f}</span>
-                        <span style='color: #6b7b92; font-size: 0.95rem;'>· {row["Type"]}</span>
+                        <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH &middot; {fraud_pct}%</span>
+                        <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>{amount_str}</span>
+                        <span style='color: #6b7b92; font-size: 0.95rem;'>&middot; {row["Type"]}</span>
                     </div>
                     <span style='color: #6b7b92; font-size: 0.92rem; font-weight: 500;'>{row["Time"]}</span>
                 </div>
                 <div style='display: flex; justify-content: space-between; align-items: flex-start;'>
                     <div>
                         <div style='color: #0f2a47; font-weight: 600; font-size: 0.98rem; margin-bottom: 0.3rem;'>{row["Location"]}</div>
-                        <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.4;'>
-                            {get_fraud_reasons(row["Amount"], hour, row["Type"])[0]} · {get_fraud_reasons(row["Amount"], hour, row["Type"])[1] if len(get_fraud_reasons(row["Amount"], hour, row["Type"])) > 1 else ""}
+                        <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.5;'>
+                            {reason_preview}
                         </div>
                     </div>
                 </div>
@@ -1489,17 +1966,10 @@ elif page == "Email Inbox":
         unsafe_allow_html=True,
     )
 
-    # Determine which email is selected based on query parameters
-    selected_index = df_transactions.index[0]
-    if "email_index" in st.query_params:
-        try:
-            val = int(st.query_params["email_index"])
-            if val in df_transactions.index:
-                selected_index = val
-        except ValueError:
-            pass
-
-    selected = df_transactions.loc[selected_index]
+    selected_idx = st.session_state.get("selected_email_idx", 0)
+    if selected_idx >= len(df_transactions) or selected_idx < 0:
+        selected_idx = 0
+    selected = df_transactions.iloc[selected_idx]
     selected_hour = int(selected["Time"].split()[1].split(":")[0])
     selected_reasons = get_fraud_reasons(selected["Amount"], selected_hour, selected["Type"])
     selected_risk = selected["Risk_Level"].lower()
@@ -1512,17 +1982,118 @@ elif page == "Email Inbox":
         "If this was not you, please contact us immediately."
     )
 
-    mail_items_html = []
-    for item_index, row in df_transactions.head(6).iterrows():
-        risk_key = row["Risk_Level"].lower()
-        subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
-        preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
-        item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
-        active_class = " mail-item-active" if item_index == selected_index else ""
-        mail_items_html.append(
-            textwrap.dedent(f"""
-            <a href='?page=Email+Inbox&email_index={item_index}' target='_self' style='text-decoration: none; color: inherit; display: block;'>
-                <div class='mail-item{active_class}'>
+    # Build detailed reasons using the enriched function
+    selected_reasons = get_fraud_reasons(
+        selected["Amount"],
+        selected_hour,
+        selected["Type"],
+        fraud_score=selected["Fraud_Score"],
+        location=selected["Location"]
+    )
+
+    # Model-derived explanation and suspicious factors, if available
+    model_explanation = st.session_state.get("latest_explanation", "")
+    model_factors = st.session_state.get("latest_suspicious_factors", [])
+
+    # Build HTML for model explanation
+    explanation_html = (f"<p style='margin-bottom:0.6rem;color:#374151;'>{model_explanation}</p>"
+                        if model_explanation else "")
+
+    # Build HTML list for model factors
+    factors_html = ""
+    if model_factors:
+        factor_items = []
+        for factor in model_factors:
+            code = factor.get('code', '')
+            reason_text = factor.get('reason', '')
+            weight = factor.get('weight', 0)
+            weight_str = "{:.2f}".format(weight)
+            factor_items.append(
+                f"<li><strong>{code}</strong>: {reason_text} "
+                f"<span style='color:#9ca3af;font-size:0.85em;'>(ML weight: {weight_str})</span></li>"
+            )
+        factors_html = (
+            "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>ML Model Signals:</p>"
+            "<ul style='margin:0 0 0.5rem;'>" + "".join(factor_items) + "</ul>"
+        )
+
+    # Build rule-based / feature-derived reasons
+    rule_items = "".join(
+        f"<li style='margin-bottom:0.4rem;line-height:1.5;'>{r}</li>"
+        for r in selected_reasons
+    )
+    rules_html = (
+        "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>Fraud Indicators:</p>"
+        f"<ul style='margin:0;padding-left:1.2rem;'>" + rule_items + "</ul>"
+    )
+
+    # Combine all reasoning sections
+    combined_reason_html = explanation_html + factors_html + rules_html
+
+    # Render the head section using columns or custom layout
+    head_col, btn_col = st.columns([7, 3], vertical_alignment="center")
+    with head_col:
+        st.markdown(
+            """
+            <div class='page-head-title' style='padding: 2.2rem 0 1.65rem;'>
+                <div class='page-title'>Bank Email Inbox</div>
+                <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    with btn_col:
+        # Streamlit button for "+ New email"
+        # The CSS globally applies to .stButton > button giving it a beautiful styled look
+        if st.button("+ New email", key="new_email_btn", use_container_width=True):
+            manual_transaction_dialog()
+
+    # Split layout into two columns using st.columns
+    inbox_col1, inbox_col2 = st.columns([1, 2], gap="small")
+
+    with inbox_col1:
+        # Hidden text input to hold selection state without taking up space
+        selected_idx_str = st.text_input(
+            "selected_email_idx_hidden",
+            value=str(selected_idx),
+            key="hidden_email_idx",
+            label_visibility="collapsed"
+        )
+        try:
+            st.session_state.selected_email_idx = int(selected_idx_str)
+        except ValueError:
+            st.session_state.selected_email_idx = 0
+
+        for idx, (df_index, row) in enumerate(df_transactions.head(6).iterrows()):
+            risk_key = row["Risk_Level"].lower()
+            subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
+            preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
+            item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
+            active_class = " mail-item-active" if idx == selected_idx else ""
+
+            onclick_js = f"""
+            const doc = (window.parent && window.parent.document) ? window.parent.document : document;
+            const labels = doc.querySelectorAll('label');
+            let input = null;
+            for (let i = 0; i < labels.length; i++) {{
+                if (labels[i].textContent.trim() === "selected_email_idx_hidden") {{
+                    const forId = labels[i].getAttribute("for");
+                    if (forId) {{
+                        input = doc.getElementById(forId);
+                    }}
+                    break;
+                }}
+            }}
+            if (input) {{
+                input.value = "{idx}";
+                input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+                input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+            }}
+            """.strip().replace('\n', ' ')
+
+            st.markdown(
+                textwrap.dedent(f"""
+                <div class='mail-item{active_class}' onclick='{onclick_js}'>
                     <div class='mail-row'>
                         <div class='mail-sender'>alerts@maybank2u.com.my</div>
                         <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
@@ -1531,27 +2102,13 @@ elif page == "Email Inbox":
                     <div class='mail-preview'>{preview}</div>
                     <div class='mail-time'>{item_date}</div>
                 </div>
-            </a>
-            """).strip()
-        )
+                """).strip(),
+                unsafe_allow_html=True
+            )
 
-    reasons_html = "".join(f"<li>{reason.replace('⚠️ ', '').replace('✓ ', '')}</li>" for reason in selected_reasons)
-
-    inbox_html = f"""
-<div class='page-head'>
-    <div>
-        <div class='page-title'>Bank Email Inbox</div>
-        <div class='page-subtitle'>Simulated bank notifications, parsed and scored by the fraud engine.</div>
-    </div>
-    <div class='page-actions'>
-        <div class='action-btn'>+<span>New email</span></div>
-    </div>
-</div>
-<div class='inbox-shell'>
-    <div class='mail-list'>
-{''.join(mail_items_html)}
-    </div>
-    <div class='mail-detail'>
+    with inbox_col2:
+        # Render the right-side cards
+        detail_html = f"""
         <div class='email-card'>
             <div class='email-head'>
                 <div class='email-icon'>
@@ -1581,18 +2138,16 @@ elif page == "Email Inbox":
             <div class='detail-grid'>
                 <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
                 <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
+                <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
                 <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
-                <div class='detail-box'><div class='detail-label'>Location</div><div class='detail-value'>{selected['Location']}</div></div>
             </div>
             <div class='reason-label'>Why this score?</div>
-            <ul class='reason-list'>{reasons_html}</ul>
+            <div class='reason-list'>{combined_reason_html}</div>
         </div>
-    </div>
-</div>
-""".strip()
+        """.strip()
 
-    inbox_html = "\n".join(line.lstrip() for line in inbox_html.splitlines())
-    st.markdown(inbox_html, unsafe_allow_html=True)
+        detail_html = "\n".join(line.lstrip() for line in detail_html.splitlines())
+        st.markdown(detail_html, unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE: TRANSACTIONS
