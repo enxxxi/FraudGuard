@@ -1247,7 +1247,7 @@ DEFAULT_FIREBASE_PROJECT_ID = (
     or "fraudguard-wie2003"
 )
 FIREBASE_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
-LOCAL_API_BASE_URL = "http://127.0.0.1:8787"
+LOCAL_API_BASE_URL = "https://api-2xlf3uoe6a-uc.a.run.app"
 API_BASE_URL = os.getenv(
     "FRAUDGUARD_API_BASE_URL",
     os.getenv("FRAUDGUARD_USE_FIREBASE_EMULATOR", "").lower() in {"1", "true", "yes"}
