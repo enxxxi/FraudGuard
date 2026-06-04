@@ -1757,11 +1757,11 @@ def _mail_type_icon_html(txn_type: str) -> str:
     return f'<span class="mail-type-icon" aria-hidden="true"><svg {svg_attrs}>{paths}</svg></span>'
 
 
-def _build_inbox_mail_list_html(transactions_df, selected_idx: int, limit: int = 6) -> str:
+def _build_inbox_mail_list_html(transactions_df, selected_idx: int) -> str:
     """Render inbox sidebar as linked mail cards."""
     risk_class_map = {"high": "risk-high", "medium": "risk-medium", "low": "risk-low"}
     parts = ['<div class="mail-list">']
-    for idx, (_, row) in enumerate(transactions_df.head(limit).iterrows()):
+    for idx, (_, row) in enumerate(transactions_df.iterrows()):
         risk_key = str(row["Risk_Level"]).lower()
         risk_class = risk_class_map.get(risk_key, "risk-medium")
         active = " mail-item-active" if idx == selected_idx else ""
@@ -2443,7 +2443,34 @@ elif page == "Analytics":
 
     chart_col1, chart_col2 = st.columns(2, gap="small")
 
-    trend_df = df_transactions.copy()
+    df_analytics = df_transactions.copy()
+
+    def get_analytics_category(row):
+        t = row.get("Type", "")
+        l = row.get("Location", "")
+        if t == "Fund Transfer":
+            l_lower = str(l).lower()
+            if any(k in l_lower for k in ["international", "singapore", "hong kong"]):
+                return "International Transfer"
+            else:
+                return "Domestic Transfer"
+        elif t == "Card Purchase":
+            return "POS Payment"
+        elif t == "Atm Withdrawal":
+            return "ATM Withdrawal"
+        elif t == "Online Purchase":
+            return "Online Purchase"
+        elif t == "Bill Payment":
+            return "Bill Payment"
+        else:
+            return t
+
+    if not df_analytics.empty:
+        df_analytics["Analytics_Category"] = df_analytics.apply(get_analytics_category, axis=1)
+    else:
+        df_analytics["Analytics_Category"] = pd.Series(dtype=str)
+
+    trend_df = df_analytics.copy()
     trend_df["Day"] = trend_df["Timestamp"].dt.normalize()
     end_day = trend_df["Day"].max()
     if pd.isna(end_day):
@@ -2512,9 +2539,8 @@ elif page == "Analytics":
         "Online Purchase",
         "International Transfer",
     ]
-    type_risk = df_transactions.groupby("Type")["Fraud_Score"].mean()
-    fallback_risk = type_risk.mean() if not type_risk.empty else 0
-    type_values = (type_risk.reindex(type_order).fillna(fallback_risk) * 100).round(1)
+    type_risk = df_analytics.groupby("Analytics_Category")["Fraud_Score"].mean()
+    type_values = (type_risk.reindex(type_order).fillna(0.0) * 100).round(1)
 
     with chart_col2:
         with st.container(border=True):
@@ -2556,19 +2582,16 @@ elif page == "Analytics":
     st.markdown("<div style='height:1rem'></div>", unsafe_allow_html=True)
     bottom_col1, bottom_col2 = st.columns(2, gap="small")
 
-    location_series = df_transactions["Location"].astype(str)
-    type_series = df_transactions["Type"].astype(str)
+    location_series = df_analytics["Location"].astype(str)
+    type_series = df_analytics["Type"].astype(str)
     international_mask = (
         location_series.str.contains("international|singapore|hong kong", case=False, regex=True)
         | type_series.str.contains("wire|international", case=False, regex=True)
     )
-    local_avg = df_transactions.loc[~international_mask, "Fraud_Score"].mean()
-    intl_avg = df_transactions.loc[international_mask, "Fraud_Score"].mean()
-    overall_avg = df_transactions["Fraud_Score"].mean()
-    if pd.isna(overall_avg):
-        overall_avg = 0.0
-    local_pct = 0 if pd.isna(local_avg) else local_avg * 100
-    intl_pct = (overall_avg if pd.isna(intl_avg) else intl_avg) * 100
+    local_avg = df_analytics.loc[~international_mask, "Fraud_Score"].mean()
+    intl_avg = df_analytics.loc[international_mask, "Fraud_Score"].mean()
+    local_pct = 0.0 if pd.isna(local_avg) else local_avg * 100
+    intl_pct = 0.0 if pd.isna(intl_avg) else intl_avg * 100
 
     with bottom_col1:
         with st.container(border=True):
@@ -2608,23 +2631,15 @@ elif page == "Analytics":
                 unsafe_allow_html=True,
             )
 
-    summary_map = {
-        "Domestic Transfer": ["Transfer", "Domestic Transfer"],
-        "ATM Withdrawal": ["Withdrawal", "ATM Withdrawal"],
-        "Bill Payment": ["Card Payment", "Bill Payment"],
-        "POS Payment": ["Purchase", "POS Payment"],
-        "Online Purchase": ["Purchase", "Online Purchase"],
-        "International Transfer": ["Wire", "International Transfer"],
-    }
     summary_rows = []
-    for label, source_types in summary_map.items():
-        type_mask = df_transactions["Type"].isin(source_types)
+    for label in type_order:
+        type_mask = df_analytics["Analytics_Category"] == label
         total = int(type_mask.sum())
-        flagged = int((type_mask & (df_transactions["Risk_Level"] == "HIGH")).sum())
+        flagged = int((type_mask & (df_analytics["Risk_Level"] == "HIGH")).sum())
         avg_pct = (
-            df_transactions.loc[type_mask, "Fraud_Score"].mean() * 100
+            df_analytics.loc[type_mask, "Fraud_Score"].mean() * 100
             if total
-            else overall_avg * 100
+            else 0.0
         )
         fill_pct = max(0, min(100, avg_pct))
         summary_rows.append(

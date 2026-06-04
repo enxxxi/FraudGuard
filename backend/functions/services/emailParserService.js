@@ -129,13 +129,29 @@ const buildIsoDateTime = (datePart, timePart) => {
   if (meridiem === "PM" && hour < 12) hour += 12;
   if (meridiem === "AM" && hour === 12) hour = 0;
 
-  const dateMatch = normalizeContent(datePart).match(/\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b/i);
   const now = new Date();
-  const day = dateMatch ? Number(dateMatch[1]) : now.getDate();
-  const month = dateMatch ? MONTHS[dateMatch[2].toLowerCase()] : now.getMonth();
-  const year = dateMatch ? Number(dateMatch[3]) : now.getFullYear();
+  let day = now.getDate();
+  let month = now.getMonth();
+  let year = now.getFullYear();
 
-  if (month === undefined) {
+  if (datePart) {
+    const dateStr = normalizeContent(datePart);
+    const isoMatch = dateStr.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (isoMatch) {
+      year = Number(isoMatch[1]);
+      month = Number(isoMatch[2]) - 1;
+      day = Number(isoMatch[3]);
+    } else {
+      const dateMatch = dateStr.match(/\b(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})\b/i);
+      if (dateMatch) {
+        day = Number(dateMatch[1]);
+        month = MONTHS[dateMatch[2].toLowerCase()];
+        year = Number(dateMatch[3]);
+      }
+    }
+  }
+
+  if (month === undefined || month < 0 || month > 11) {
     return null;
   }
 
@@ -215,12 +231,51 @@ const extractTransactionTime = (content) => {
 
 const extractTransactionDate = (content) => {
   const match = content.match(/\bon\s+(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b/i);
-  return match ? cleanValue(match[1]) : null;
+  if (match) return cleanValue(match[1]);
+
+  const matchIso = content.match(/\bon\s+(\d{4}-\d{2}-\d{2})\b/i);
+  if (matchIso) return cleanValue(matchIso[1]);
+
+  const matchIsoPlain = content.match(/\b(\d{4}-\d{2}-\d{2})\b/i);
+  if (matchIsoPlain) return cleanValue(matchIsoPlain[1]);
+
+  return null;
 };
 
 const extractReferenceNumber = (content) => {
   const match = content.match(/\b(?:reference|ref|txn|transaction\s+id|approval\s+code)\b\s*[:#-]?\s*([A-Z0-9-]{4,40})\b/i);
   return match ? match[1].toUpperCase() : null;
+};
+
+const extractLocation = (content) => {
+  // Pattern 1: location/country followed by colon/dash
+  let match = content.match(/\b(?:location|country)\s*[:\-]\s*([A-Za-z\s\.-]{2,50})/i);
+  if (match) {
+    const val = match[1].trim();
+    if (val && val.toLowerCase() !== "unknown") {
+      return val;
+    }
+  }
+
+  // Pattern 2: location/country in/of/at [Location]
+  match = content.match(/\b(?:location|country)\s+(?:in|of|at)\s+([A-Za-z\s\.-]{2,50})/i);
+  if (match) {
+    const val = match[1].trim();
+    if (val && val.toLowerCase() !== "unknown") {
+      return val;
+    }
+  }
+
+  // Pattern 3: recipient in/at [Location]
+  match = content.match(/\brecipient\s+(?:in|at)\s+([A-Za-z\s\.-]{2,50})/i);
+  if (match) {
+    const val = match[1].trim();
+    if (val && val.toLowerCase() !== "unknown") {
+      return val;
+    }
+  }
+
+  return "Unknown";
 };
 
 const runFormatExtractors = (content) => {
@@ -259,7 +314,7 @@ const buildFraudTransaction = (parsed, inferred) => ({
   transactionType: inferred.fraudType,
   direction: inferred.direction,
   merchant: parsed.merchant || "Unknown Merchant",
-  location: "Unknown",
+  location: parsed.location || "Unknown",
   transactionTime: buildIsoDateTime(parsed.transactionDate, parsed.transactionTime) || new Date().toISOString(),
   referenceId: parsed.referenceNumber,
   extractionWarnings: parsed.extractionWarnings
@@ -282,6 +337,7 @@ const parseBankEmail = (emailInput) => {
     merchant: fields.merchant ?? extractMerchant(content),
     transactionTime: fields.transactionTime ?? extractTransactionTime(content),
     referenceNumber: fields.referenceNumber ?? extractReferenceNumber(content),
+    location: extractLocation(content),
     currency: DEFAULT_CURRENCY,
     sender: sender || null,
     subject: subject || null,
@@ -297,7 +353,8 @@ const parseBankEmail = (emailInput) => {
       transactionType: parsed.transactionType,
       merchant: parsed.merchant,
       transactionTime: parsed.transactionTime,
-      referenceNumber: parsed.referenceNumber
+      referenceNumber: parsed.referenceNumber,
+      location: parsed.location
     },
     metadata: {
       sender: parsed.sender,

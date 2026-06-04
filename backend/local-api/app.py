@@ -96,9 +96,26 @@ def _parse_email(email_content: str) -> dict[str, Any]:
         merchant = merchant_match.group(1).strip()[:160]
 
     location = "Unknown"
-    location_match = re.search(r"location:\s*([^.\n]+)", email_content, re.I)
-    if location_match:
-        location = location_match.group(1).strip()[:160]
+    # Pattern 1: location/country followed by colon/dash
+    loc_match1 = re.search(r"\b(?:location|country)\s*[:\-]\s*([A-Za-z\s\.-]{2,50})", email_content, re.I)
+    if loc_match1:
+        val = loc_match1.group(1).strip()
+        if val.lower() != "unknown" and val:
+            location = val[:160]
+    else:
+        # Pattern 2: location/country in/of/at [Location]
+        loc_match2 = re.search(r"\b(?:location|country)\s+(?:in|of|at)\s+([A-Za-z\s\.-]{2,50})", email_content, re.I)
+        if loc_match2:
+            val = loc_match2.group(1).strip()
+            if val.lower() != "unknown" and val:
+                location = val[:160]
+        else:
+            # Pattern 3: recipient in/at [Location]
+            loc_match3 = re.search(r"\brecipient\s+(?:in|at)\s+([A-Za-z\s\.-]{2,50})", email_content, re.I)
+            if loc_match3:
+                val = loc_match3.group(1).strip()
+                if val.lower() != "unknown" and val:
+                    location = val[:160]
 
     txn_type = "CARD_PURCHASE"
     lowered = email_content.lower()
@@ -109,12 +126,60 @@ def _parse_email(email_content: str) -> dict[str, Any]:
     elif "online" in lowered:
         txn_type = "ONLINE_PURCHASE"
 
-    time_match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2})", email_content)
-    transaction_time = (
-        datetime.fromisoformat(time_match.group(1).replace(" ", "T")).replace(tzinfo=timezone.utc).isoformat()
-        if time_match
-        else datetime.now(timezone.utc).isoformat()
-    )
+    # Extract Date: e.g. YYYY-MM-DD
+    date_match = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", email_content)
+    date_str = date_match.group(1) if date_match else None
+
+    # Extract Time: e.g. at 03:41 AM, at 03:41, 03:41 AM
+    time_str = None
+    time_patterns = [
+        r"\b(?:at|time)\s+(\d{1,2}:\d{2}\s*(?:AM|PM)?)\b",
+        r"\b(\d{1,2}:\d{2}\s*(?:AM|PM))\b",
+        r"\b(\d{1,2}:\d{2})\b"
+    ]
+    for pat in time_patterns:
+        t_match = re.search(pat, email_content, re.I)
+        if t_match:
+            time_str = t_match.group(1).strip()
+            break
+
+    # Try standard YYYY-MM-DD[ T]HH:MM first
+    dt_match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2})", email_content)
+    if dt_match:
+        try:
+            transaction_time = datetime.fromisoformat(dt_match.group(1).replace(" ", "T")).replace(tzinfo=timezone.utc).isoformat()
+        except ValueError:
+            transaction_time = datetime.now(timezone.utc).isoformat()
+    elif date_str or time_str:
+        if date_str:
+            try:
+                dt_part = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                dt_part = datetime.now(timezone.utc)
+        else:
+            dt_part = datetime.now(timezone.utc)
+
+        hour, minute = 12, 0
+        if time_str:
+            t_clean = time_str.lower()
+            is_pm = "pm" in t_clean
+            is_am = "am" in t_clean
+            t_digits = re.search(r"(\d{1,2}):(\d{2})", t_clean)
+            if t_digits:
+                hour = int(t_digits.group(1))
+                minute = int(t_digits.group(2))
+                if is_pm and hour < 12:
+                    hour += 12
+                elif is_am and hour == 12:
+                    hour = 0
+        else:
+            now = datetime.now(timezone.utc)
+            hour, minute = now.hour, now.minute
+
+        final_dt = dt_part.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
+        transaction_time = final_dt.isoformat()
+    else:
+        transaction_time = datetime.now(timezone.utc).isoformat()
 
     warnings: list[str] = []
     if location == "Unknown":
