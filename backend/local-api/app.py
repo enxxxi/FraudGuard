@@ -6,10 +6,12 @@ Mirrors the Node/Firebase Functions contract used by the Streamlit dashboard.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -28,7 +30,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_DATA_DIR = Path(__file__).resolve().parent / "data"
+_STORE_FILE = Path(os.getenv("FRAUDGUARD_LOCAL_STORE_PATH", str(_DATA_DIR / "demo_analyses.json")))
 _store: list[dict[str, Any]] = []
+
+
+def _load_store_from_disk() -> None:
+    if not _STORE_FILE.exists():
+        return
+    try:
+        with _STORE_FILE.open("r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        if isinstance(loaded, list):
+            _store[:] = loaded
+    except (OSError, json.JSONDecodeError):
+        pass
+
+
+def _persist_store_to_disk() -> None:
+    try:
+        _STORE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with _STORE_FILE.open("w", encoding="utf-8") as handle:
+            json.dump(_store, handle, indent=2)
+    except OSError:
+        pass
+
+
+_load_store_from_disk()
 
 
 class EmailAnalyzeBody(BaseModel):
@@ -147,6 +175,7 @@ def _save_record(
         "updatedAt": datetime.now(timezone.utc).isoformat(),
     }
     _store.insert(0, record)
+    _persist_store_to_disk()
     return record
 
 
@@ -195,6 +224,7 @@ async def health() -> dict[str, Any]:
             "service": "FraudGuard Local API",
             "mlServiceUrl": ML_SERVICE_URL,
             "storedAnalyses": len(_store),
+            "persistedTo": str(_STORE_FILE),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )

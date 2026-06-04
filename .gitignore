@@ -35,6 +35,9 @@ build/
 .env.*
 !.env.example
 
+# Local API demo persistence (per-developer history)
+backend/local-api/data/
+
 # Firebase local project and emulator artifacts
 backend/.firebaserc
 backend/functions/.env

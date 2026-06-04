@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 import html
 import json
 import os
-import random
 import textwrap
 from urllib import error, parse, request
 
@@ -1203,60 +1202,23 @@ page = st.sidebar.radio(
 
 page = [item[1] for item in menu_items if item[0] == page][0]
 
-# GENERATE SAMPLE TRANSACTION DATA
-# ============================================================================
-@st.cache_data
-def generate_sample_transactions():
-    """Generate simulated bank transactions with fraud indicators."""
-    # Removed fixed seed to allow truly random simulations
-    # np.random.seed(42)
-    transactions = []
-    
-    # Suspicious transaction patterns
-    suspicious_amounts = [850, 2500, 5000, 12000, 3200, 6700]
-    suspicious_times = [2, 3, 4, 23, 22, 21]  # late-night hours
-    transaction_types = ["Transfer", "Withdrawal", "Purchase", "Wire", "Card Payment", "Cash Advance"]
-    locations = ["Downtown ATM", "Online Store", "International", "Local Branch", "ATM Network", "Web Transfer"]
-    
-    for i in range(25):
-        is_suspicious = random.random() < 0.4  # 40% fraud rate in demo
-        
-        if is_suspicious:
-            amount = random.choice(suspicious_amounts)
-            hour = random.choice(suspicious_times)
-            fraud_label = "HIGH"
-            explanation = "HIGH risk based on 3 suspicious factor(s)."
-            factors = [
-                {"code": "UNUSUALLY_HIGH_AMOUNT", "reason": f"Transaction amount of {amount} is above the high-risk threshold.", "weight": 0.35},
-                {"code": "LATE_NIGHT_TRANSACTION", "reason": "Transaction occurred between midnight and 5 AM.", "weight": 0.18},
-                {"code": "UNUSUAL_MERCHANT", "reason": "Merchant name matches a suspicious or unusual merchant pattern.", "weight": 0.16}
-            ]
-        else:
-            amount = round(random.uniform(10, 500), 2)
-            hour = random.randint(6, 20)
-            fraud_label = "LOW"
-            explanation = "LOW risk because no major suspicious behavior was detected."
-            factors = []
-        
-        date = datetime.now() - timedelta(days=random.randint(0, 10))
-        date = date.replace(hour=hour, minute=random.randint(0, 59))
-        
-        fraud_score = np.random.uniform(0.85, 0.99) if is_suspicious else np.random.uniform(0.05, 0.3)
-        
-        transactions.append({
-            "Transaction_ID": f"TXN{1000+i}",
-            "Amount": amount,
-            "Type": random.choice(transaction_types),
-            "Time": date.strftime("%Y-%m-%d %H:%M"),
-            "Location": random.choice(locations),
-            "Fraud_Score": round(fraud_score, 3),
-            "Risk_Level": fraud_label if fraud_score > 0.5 else ("MEDIUM" if fraud_score > 0.3 else "LOW"),
-            "Timestamp": date,
-            "Explanation": explanation,
-            "Suspicious_Factors": factors,
-        })
-    
-    return pd.DataFrame(transactions).sort_values("Timestamp", ascending=False)
+TRANSACTION_COLUMNS = [
+    "Transaction_ID",
+    "Amount",
+    "Type",
+    "Time",
+    "Location",
+    "Fraud_Score",
+    "Risk_Level",
+    "Timestamp",
+    "Explanation",
+    "Suspicious_Factors",
+]
+
+
+def empty_transactions_df():
+    """Empty dataframe used on first launch before any analyses are ingested."""
+    return pd.DataFrame(columns=TRANSACTION_COLUMNS)
 
 
 DEFAULT_FIREBASE_PROJECT_ID = (
@@ -1430,9 +1392,7 @@ def manual_transaction_dialog():
             result = _predict_via_api(API_BASE_URL, user_id.strip(), payload)
             st.session_state.latest_explanation = result.get("explanation", "")
             st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
-            load_backend_dashboard_data.clear()
-            st.session_state.pop("df_transactions", None)
-            st.session_state.pop("dashboard_stats", None)
+            refresh_backend_dashboard_state()
             st.rerun()
         except Exception as exc:
             st.error(f"Failed to submit transaction to backend: {exc}")
@@ -1475,9 +1435,7 @@ def manual_email_dialog():
             result = _analyze_email_via_api(API_BASE_URL, user_id.strip(), email_content.strip())
             st.session_state.latest_explanation = result.get("explanation", "")
             st.session_state.latest_suspicious_factors = result.get("suspiciousFactors", [])
-            load_backend_dashboard_data.clear()
-            st.session_state.pop("df_transactions", None)
-            st.session_state.pop("dashboard_stats", None)
+            refresh_backend_dashboard_state()
             st.rerun()
         except Exception as exc:
             st.error(f"Failed to analyze and ingest email: {exc}")
@@ -1525,19 +1483,34 @@ def load_backend_dashboard_data(api_base_url, user_id):
 
 
 def refresh_backend_dashboard_state():
+    """Reload transactions and stats from the API (Firestore or local persisted store)."""
     load_backend_dashboard_data.clear()
-    dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
-
-    if backend_transactions.empty:
-        st.session_state.df_transactions = generate_sample_transactions()
-        st.session_state.data_source = "sample"
-        st.session_state.api_error = "Backend API connected, but no saved analyses were found yet."
-    else:
+    try:
+        dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
         st.session_state.df_transactions = backend_transactions
+        st.session_state.dashboard_stats = dashboard_stats
         st.session_state.data_source = "api"
         st.session_state.api_error = None
+    except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        st.session_state.api_error = f"Analysis saved, but could not refresh dashboard data: {exc}"
 
-    st.session_state.dashboard_stats = dashboard_stats
+
+def initialize_transaction_data():
+    """Start empty on first visit; restore prior demo analyses from the backend when available."""
+    try:
+        dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
+        st.session_state.df_transactions = backend_transactions
+        st.session_state.dashboard_stats = dashboard_stats
+        st.session_state.data_source = "api"
+        st.session_state.api_error = None
+    except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
+        st.session_state.df_transactions = empty_transactions_df()
+        st.session_state.dashboard_stats = None
+        st.session_state.data_source = "offline"
+        st.session_state.api_error = (
+            "Backend API unavailable — start the local API or Firebase emulator to save and "
+            f"restore demo history across sessions. ({exc})"
+        )
 
 
 def _map_demo_type_to_backend(transaction_type):
@@ -1804,28 +1777,13 @@ if "dashboard_stats" not in st.session_state:
     st.session_state.dashboard_stats = None
 
 if "data_source" not in st.session_state:
-    st.session_state.data_source = "sample"
+    st.session_state.data_source = "api"
 
 if "api_error" not in st.session_state:
     st.session_state.api_error = None
 
 if "df_transactions" not in st.session_state:
-    try:
-        dashboard_stats, backend_transactions = load_backend_dashboard_data(API_BASE_URL, API_USER_ID)
-        if backend_transactions.empty:
-            st.session_state.df_transactions = generate_sample_transactions()
-            st.session_state.data_source = "sample"
-            st.session_state.api_error = "Backend API connected, but no saved analyses were found yet."
-        else:
-            st.session_state.df_transactions = backend_transactions
-            st.session_state.data_source = "api"
-            st.session_state.api_error = None
-        st.session_state.dashboard_stats = dashboard_stats
-    except (error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-        st.session_state.df_transactions = generate_sample_transactions()
-        st.session_state.dashboard_stats = None
-        st.session_state.data_source = "sample"
-        st.session_state.api_error = f"Backend API unavailable, using demo data. {exc}"
+    initialize_transaction_data()
 
 df_transactions = st.session_state.df_transactions
 dashboard_stats = st.session_state.dashboard_stats or {}
@@ -1866,7 +1824,15 @@ if page == "Dashboard":
 
     st.markdown("<div style='height:0.35rem'></div>", unsafe_allow_html=True)
     if st.session_state.data_source == "api":
-        st.caption(f"Live ML-backed data from {API_BASE_URL} for user `{API_USER_ID}`.")
+        st.caption(
+            f"Live ML-backed data from {API_BASE_URL} for user `{API_USER_ID}`. "
+            "Analyses are persisted — your demo history is restored on each visit."
+        )
+        if df_transactions.empty:
+            st.info(
+                "No transactions yet. Use **Ingest Email** or **Direct Predict** to analyze your first "
+                "notification; it will appear here and in the inbox."
+            )
     elif st.session_state.api_error:
         st.warning(st.session_state.api_error)
 
@@ -2375,7 +2341,11 @@ elif page == "Transactions":
                 <th>Risk</th>
             </tr>
         </thead>
-        <tbody>{''.join(table_rows)}</tbody>
+        <tbody>{
+            "<tr><td colspan='7' style='padding:2.5rem 1rem;text-align:center;color:#6b7b92;font-size:0.95rem;'>"
+            "No transactions yet. Ingest an email or run a direct prediction to build your demo history."
+            "</td></tr>" if not table_rows else "".join(table_rows)
+        }</tbody>
     </table>
 </div>
 """.strip()
@@ -2416,6 +2386,8 @@ elif page == "Analytics":
     trend_df = df_transactions.copy()
     trend_df["Day"] = trend_df["Timestamp"].dt.normalize()
     end_day = trend_df["Day"].max()
+    if pd.isna(end_day):
+        end_day = pd.Timestamp.now().normalize()
     days = pd.date_range(end=end_day, periods=7, freq="D")
     day_labels = [day.strftime("%a") for day in days]
     daily_total = trend_df.groupby("Day").size().reindex(days, fill_value=0)
@@ -2533,6 +2505,8 @@ elif page == "Analytics":
     local_avg = df_transactions.loc[~international_mask, "Fraud_Score"].mean()
     intl_avg = df_transactions.loc[international_mask, "Fraud_Score"].mean()
     overall_avg = df_transactions["Fraud_Score"].mean()
+    if pd.isna(overall_avg):
+        overall_avg = 0.0
     local_pct = 0 if pd.isna(local_avg) else local_avg * 100
     intl_pct = (overall_avg if pd.isna(intl_avg) else intl_avg) * 100
 
