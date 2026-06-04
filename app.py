@@ -4,6 +4,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime, timedelta
+import html
 import json
 import os
 import random
@@ -527,85 +528,163 @@ st.markdown("""
         min-width: 0;
     }
 
-    .mail-item {
-        padding: 1.35rem 1.25rem 1.25rem;
-        border-bottom: 1px solid #d7e0ea;
-        background: #f8fafc;
+    a.mail-item-link {
+        text-decoration: none;
+        color: inherit;
+        display: block;
+    }
+
+    .mail-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.55rem;
+        padding: 0.85rem 0.75rem 1rem;
+    }
+
+    .mail-list .mail-item {
+        padding: 0.95rem 1rem 0.9rem;
+        border: 1px solid #dde5ee;
+        border-radius: 10px;
+        background: #ffffff;
         cursor: pointer;
-        transition: background 150ms ease;
+        transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
 
-    .mail-item:hover {
-        background: #eaeff4 !important;
+    .mail-list .mail-item:hover {
+        border-color: #c5d0de;
+        background: #ffffff !important;
+        box-shadow: 0 3px 10px rgba(15, 23, 42, 0.07);
     }
 
-    .mail-item-active {
-        background: #dce7ef !important;
+    .mail-list .mail-item-active {
+        background: #f4f8fc !important;
+        border-color: #9eb4cc !important;
+        border-left: 3px solid #132a46 !important;
+        padding-left: calc(1rem - 2px);
+        box-shadow: 0 2px 12px rgba(19, 42, 70, 0.09);
     }
 
     .mail-row {
         display: flex;
         justify-content: space-between;
-        gap: 0.75rem;
+        gap: 0.65rem;
         align-items: center;
-        margin-bottom: 0.75rem;
+        margin-bottom: 0.55rem;
+    }
+
+    .mail-from-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .mail-type-icon {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        background: #edf2f7;
+        color: #132a46;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
     }
 
     .mail-sender {
-        color: #4b5c73;
-        font-size: 0.84rem;
-        font-weight: 700;
+        color: #5f6f84;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
         min-width: 0;
-        flex: 1 1 auto;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .risk-pill {
-        min-width: 66px;
-        height: 26px;
-        border-radius: 7px;
+        min-width: 58px;
+        height: 24px;
+        border-radius: 6px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.78rem;
-        font-weight: 900;
-        letter-spacing: 0.08em;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
         flex: 0 0 auto;
+        text-transform: uppercase;
     }
 
     .risk-high {
-        color: #e7283b;
-        border: 1px solid #e7283b;
-        background: #ffffff;
+        color: #c41e2e;
+        border: 1px solid #f0b4ba;
+        background: #fff5f6;
     }
 
     .risk-medium {
-        color: #d99200;
-        border: 1px solid #e6a000;
+        color: #b07a00;
+        border: 1px solid #f0d9a8;
         background: #fffaf0;
     }
 
     .risk-low {
-        color: #159553;
-        border: 1px solid #159553;
-        background: #f7fffb;
+        color: #0f7a4c;
+        border: 1px solid #b8e6d0;
+        background: #f4fcf8;
     }
 
     .mail-subject {
-        color: #001a39;
-        font-size: 0.98rem;
-        font-weight: 850;
-        line-height: 1.3;
-        margin-bottom: 0.55rem;
+        color: #0f2a47;
+        font-size: 0.94rem;
+        font-weight: 700;
+        line-height: 1.35;
+        margin-bottom: 0.4rem;
+        text-align: left;
     }
 
-    .mail-preview,
-    .mail-time {
+    .mail-meta-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .mail-preview {
+        color: #6b7b92;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        flex: 1 1 auto;
+        text-align: left;
+    }
+
+    .mail-fraud-score {
         color: #4b5c73;
-        font-size: 0.83rem;
-        line-height: 1.45;
+        font-size: 0.76rem;
+        font-weight: 700;
+        flex: 0 0 auto;
+        background: #eef2f6;
+        padding: 0.2rem 0.5rem;
+        border-radius: 5px;
+    }
+
+    .mail-list .mail-item-active .mail-fraud-score {
+        background: #e2ebf4;
+        color: #132a46;
+    }
+
+    .mail-time {
+        color: #9baabe;
+        font-size: 0.76rem;
+        line-height: 1.4;
+        text-align: left;
     }
 
     .mail-detail {
@@ -1031,13 +1110,44 @@ st.markdown("""
         max-height: 680px !important;
     }
 
-    /* Hide the hidden text input container */
-    div[data-testid="element-container"]:has(input[aria-label="selected_email_idx_hidden"]),
-    div[data-testid="stElementContainer"]:has(input[aria-label="selected_email_idx_hidden"]) {
-        display: none !important;
-        height: 0 !important;
-        margin: 0 !important;
+    /* Inbox mail list column — tighten Streamlit wrappers */
+    div[data-testid="stHorizontalBlock"]:has(div.mail-list)
+        > div[data-testid="column"]:first-child
+        [data-testid="element-container"] {
         padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-list) {
+        background: #f6f9fc !important;
+        border-top: 1px solid #d7e0ea !important;
+        margin: 0 -1.9rem -1.25rem !important;
+        gap: 0 !important;
+    }
+
+    div[data-testid="stHorizontalBlock"]:has(div.mail-list)
+        > div[data-testid="column"]:first-child {
+        background: #f8fafc !important;
+        border-right: 1px solid #d7e0ea !important;
+        max-height: 680px !important;
+        overflow-y: auto !important;
+        padding: 0 !important;
+    }
+
+    /* Dashboard alert card hover effect */
+    .dashboard-alert-card {
+        background: #fff5f5;
+        border: 1px solid #f5d7d5;
+        border-radius: 12px;
+        padding: 1.1rem;
+        margin-bottom: 0.8rem;
+        transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+        cursor: pointer;
+    }
+    .dashboard-alert-card:hover {
+        transform: translateY(-2px);
+        background-color: #ffebeb !important;
+        box-shadow: 0 4px 12px rgba(231, 40, 59, 0.08);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -1619,6 +1729,74 @@ def get_fraud_reasons(amount, hour, transaction_type, fraud_score=None, location
     return reasons
 
 
+def _mail_type_icon_html(txn_type: str) -> str:
+    """Small inline SVG icon keyed to transaction type."""
+    t = (txn_type or "").lower()
+    svg_attrs = 'width="16" height="16" viewBox="0 0 24 24" fill="none"'
+    if "transfer" in t or "wire" in t:
+        paths = (
+            '<path d="M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+            '<path d="M13 7l5 5-5 5M11 17l-5-5 5-5" stroke="currentColor" stroke-width="2" '
+            'stroke-linecap="round" stroke-linejoin="round"/>'
+        )
+    elif "withdraw" in t or "atm" in t or "cash" in t:
+        paths = (
+            '<rect x="3" y="6" width="18" height="12" rx="2" stroke="currentColor" stroke-width="2"/>'
+            '<path d="M7 10h4M7 14h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+        )
+    elif "purchase" in t or "card" in t or "pos" in t:
+        paths = (
+            '<rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="2"/>'
+            '<path d="M3 10h18" stroke="currentColor" stroke-width="2"/>'
+        )
+    elif "online" in t:
+        paths = (
+            '<circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/>'
+            '<path d="M3 12h18M12 3c3 4 3 14 0 18M12 3c-3 4-3 14 0 18" stroke="currentColor" stroke-width="2"/>'
+        )
+    else:
+        paths = (
+            '<path d="M4 6h16v12H4V6Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
+            '<path d="m4 7 8 6 8-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+            'stroke-linejoin="round"/>'
+        )
+    return f'<span class="mail-type-icon" aria-hidden="true"><svg {svg_attrs}>{paths}</svg></span>'
+
+
+def _build_inbox_mail_list_html(transactions_df, selected_idx: int, limit: int = 6) -> str:
+    """Render inbox sidebar as linked mail cards."""
+    risk_class_map = {"high": "risk-high", "medium": "risk-medium", "low": "risk-low"}
+    parts = ['<div class="mail-list">']
+    for idx, (_, row) in enumerate(transactions_df.head(limit).iterrows()):
+        risk_key = str(row["Risk_Level"]).lower()
+        risk_class = risk_class_map.get(risk_key, "risk-medium")
+        active = " mail-item-active" if idx == selected_idx else ""
+        amount_str = f"RM{row['Amount']:,.2f}"
+        fraud_pct = float(row["Fraud_Score"]) * 100
+        item_date = row["Timestamp"].strftime("%d %b, %I:%M %p").replace(" 0", " ").lstrip("0")
+        txn_type = html.escape(str(row["Type"]))
+        location = html.escape(str(row["Location"]))
+        risk_label = html.escape(str(row["Risk_Level"]))
+        parts.append(
+            f'<a href="?page=Email+Inbox&amp;email_idx={idx}" target="_top" class="mail-item-link">'
+            f'<div class="mail-item{active}">'
+            f'<div class="mail-row">'
+            f'<div class="mail-from-wrap">{_mail_type_icon_html(str(row["Type"]))}'
+            f'<span class="mail-sender">Maybank Alerts</span></div>'
+            f'<span class="risk-pill {risk_class}">{risk_label}</span>'
+            f'</div>'
+            f'<div class="mail-subject">{amount_str} &middot; {txn_type}</div>'
+            f'<div class="mail-meta-row">'
+            f'<span class="mail-preview">{location}</span>'
+            f'<span class="mail-fraud-score">{fraud_pct:.0f}% risk</span>'
+            f'</div>'
+            f'<div class="mail-time">{item_date}</div>'
+            f'</div></a>'
+        )
+    parts.append("</div>")
+    return "\n".join(parts)
+
+
 # ============================================================================
 # LOAD DATA
 # ============================================================================
@@ -1890,43 +2068,62 @@ if page == "Dashboard":
     
     # Display high-risk alerts
     high_risk_alerts = df_transactions[df_transactions["Risk_Level"] == "HIGH"].head(4)
-    
-    for idx, row in high_risk_alerts.iterrows():
-        fraud_pct = int(row["Fraud_Score"] * 100)
-        hour = int(row["Time"].split()[1].split(":")[0])
-        reasons = get_fraud_reasons(
-            row["Amount"], hour, row["Type"],
-            fraud_score=row["Fraud_Score"],
-            location=row["Location"]
-        )
-        # Show up to 2 reasons in summary; truncate long ones for dashboard cards
-        def _short(s, n=120):
-            return s[:n] + "…" if len(s) > n else s
-        reason_preview = " · ".join(_short(r) for r in reasons[:2])
-        amount_str = "RM{:,.2f}".format(row["Amount"])
+
+    if high_risk_alerts.empty:
         st.markdown(
-            f"""
-            <div style='background: #fff5f5; border: 1px solid #f5d7d5; border-radius: 12px; padding: 1.1rem; margin-bottom: 0.8rem;'>
-                <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;'>
-                    <div style='display: flex; align-items: center; gap: 0.8rem;'>
-                        <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH &middot; {fraud_pct}%</span>
-                        <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>{amount_str}</span>
-                        <span style='color: #6b7b92; font-size: 0.95rem;'>&middot; {row["Type"]}</span>
-                    </div>
-                    <span style='color: #6b7b92; font-size: 0.92rem; font-weight: 500;'>{row["Time"]}</span>
-                </div>
-                <div style='display: flex; justify-content: space-between; align-items: flex-start;'>
-                    <div>
-                        <div style='color: #0f2a47; font-weight: 600; font-size: 0.98rem; margin-bottom: 0.3rem;'>{row["Location"]}</div>
-                        <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.5;'>
-                            {reason_preview}
-                        </div>
-                    </div>
-                </div>
+            """
+            <div style='background: #ffffff; border: 1px dashed #cfd7e3; border-radius: 12px; padding: 2.2rem; text-align: center; box-shadow: var(--shadow);'>
+                <span style='color: #6b7b92; font-size: 0.96rem; font-weight: 500;'>No high-risk alerts detected. Ingest an email or transaction to run ML analysis.</span>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
+    else:
+        for idx, row in high_risk_alerts.iterrows():
+            fraud_pct = int(row["Fraud_Score"] * 100)
+            hour = int(row["Time"].split()[1].split(":")[0])
+            reasons = get_fraud_reasons(
+                row["Amount"], hour, row["Type"],
+                fraud_score=row["Fraud_Score"],
+                location=row["Location"]
+            )
+            # Show up to 2 reasons in summary; truncate long ones for dashboard cards
+            def _short(s, n=120):
+                return s[:n] + "…" if len(s) > n else s
+            reason_preview = " · ".join(_short(r) for r in reasons[:2])
+            amount_str = "RM{:,.2f}".format(row["Amount"])
+
+            # Compute position of this row in df_transactions for the inbox link
+            try:
+                pos = list(df_transactions.index).index(idx)
+            except ValueError:
+                pos = 0
+
+            st.markdown(
+                f"""
+                <a href='?page=Email+Inbox&email_idx={pos}' target='_top' class='mail-item-link'>
+                    <div class='dashboard-alert-card'>
+                        <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;'>
+                            <div style='display: flex; align-items: center; gap: 0.8rem;'>
+                                <span style='background: #e5333f; color: white; padding: 0.35rem 0.75rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;'>HIGH &middot; {fraud_pct}%</span>
+                                <span style='color: #0f2a47; font-weight: 700; font-size: 1.05rem;'>{amount_str}</span>
+                                <span style='color: #6b7b92; font-size: 0.95rem;'>&middot; {row["Type"]}</span>
+                            </div>
+                            <span style='color: #6b7b92; font-size: 0.92rem; font-weight: 500;'>{row["Time"]}</span>
+                        </div>
+                        <div style='display: flex; justify-content: space-between; align-items: flex-start;'>
+                            <div>
+                                <div style='color: #0f2a47; font-weight: 600; font-size: 0.98rem; margin-bottom: 0.3rem;'>{row["Location"]}</div>
+                                <div style='color: #5f6f84; font-size: 0.9rem; line-height: 1.5;'>
+                                    {reason_preview}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+                """,
+                unsafe_allow_html=True
+            )
 
 
 # ============================================================================
@@ -1945,76 +2142,7 @@ elif page == "Email Inbox":
         unsafe_allow_html=True,
     )
 
-    selected_idx = st.session_state.get("selected_email_idx", 0)
-    if selected_idx >= len(df_transactions) or selected_idx < 0:
-        selected_idx = 0
-    selected = df_transactions.iloc[selected_idx]
-    selected_hour = int(selected["Time"].split()[1].split(":")[0])
-    selected_reasons = get_fraud_reasons(selected["Amount"], selected_hour, selected["Type"])
-    selected_risk = selected["Risk_Level"].lower()
-    selected_probability = selected["Fraud_Score"] * 100
-    selected_date = selected["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
-    selected_subject = f"Transaction Alert - RM{selected['Amount']:,.2f} {selected['Type']}"
-    selected_message = (
-        f"Dear customer, we detected a {selected['Type'].lower()} of RM{selected['Amount']:,.2f} "
-        f"at {selected['Location']} on {selected['Timestamp'].strftime('%a %b %d %Y at %I:%M %p').lower().replace(' 0', ' ')}. "
-        "If this was not you, please contact us immediately."
-    )
-
-    # Build detailed reasons using the enriched function
-    selected_reasons = get_fraud_reasons(
-        selected["Amount"],
-        selected_hour,
-        selected["Type"],
-        fraud_score=selected["Fraud_Score"],
-        location=selected["Location"]
-    )
-
-    # Model-derived explanation and suspicious factors from the selected transaction
-    model_explanation = selected.get("Explanation") if "Explanation" in selected and pd.notna(selected["Explanation"]) else ""
-    model_factors = selected.get("Suspicious_Factors") if "Suspicious_Factors" in selected and isinstance(selected["Suspicious_Factors"], list) else []
-
-    # Fallback to session state only if the selected transaction doesn't have it
-    if not model_explanation and not model_factors:
-        model_explanation = st.session_state.get("latest_explanation", "")
-        model_factors = st.session_state.get("latest_suspicious_factors", [])
-
-    # Build HTML for model explanation
-    explanation_html = (f"<p style='margin-bottom:0.6rem;color:#374151;'>{model_explanation}</p>"
-                        if model_explanation else "")
-
-    # Build HTML list for model factors
-    factors_html = ""
-    if model_factors:
-        factor_items = []
-        for factor in model_factors:
-            code = factor.get('code', '')
-            reason_text = factor.get('reason', '')
-            weight = factor.get('weight', 0)
-            weight_str = "{:.2f}".format(weight)
-            factor_items.append(
-                f"<li><strong>{code}</strong>: {reason_text} "
-                f"<span style='color:#9ca3af;font-size:0.85em;'>(ML weight: {weight_str})</span></li>"
-            )
-        factors_html = (
-            "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>ML Model Signals:</p>"
-            "<ul style='margin:0 0 0.5rem;'>" + "".join(factor_items) + "</ul>"
-        )
-
-    # Build rule-based / feature-derived reasons
-    rule_items = "".join(
-        f"<li style='margin-bottom:0.4rem;line-height:1.5;'>{r}</li>"
-        for r in selected_reasons
-    )
-    rules_html = (
-        "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>Fraud Indicators:</p>"
-        f"<ul style='margin:0;padding-left:1.2rem;'>" + rule_items + "</ul>"
-    )
-
-    # Combine all reasoning sections
-    combined_reason_html = explanation_html + factors_html + rules_html
-
-    # Render the head section using columns or custom layout
+    # Header and new email button — always visible
     head_col, btn_col = st.columns([7, 3], vertical_alignment="center")
     with head_col:
         st.markdown(
@@ -2027,111 +2155,141 @@ elif page == "Email Inbox":
             unsafe_allow_html=True
         )
     with btn_col:
-        # Streamlit button for "+ New email"
-        # The CSS globally applies to .stButton > button giving it a beautiful styled look
         if st.button("+ New email", key="new_email_btn", use_container_width=True):
             manual_email_dialog()
 
-    # Split layout into two columns using st.columns
-    inbox_col1, inbox_col2 = st.columns([1, 2], gap="small")
-
-    with inbox_col1:
-        # Hidden text input to hold selection state without taking up space
-        selected_idx_str = st.text_input(
-            "selected_email_idx_hidden",
-            value=str(selected_idx),
-            key="hidden_email_idx",
-            label_visibility="collapsed"
+    if df_transactions.empty:
+        st.markdown(
+            """
+            <div style='text-align: center; padding: 4rem 2rem; background: #ffffff; border: 1px dashed #cfd7e3; border-radius: 14px; box-shadow: var(--shadow); margin-top: 1.5rem;'>
+                <div style='font-size: 3.5rem; color: #9baabe; margin-bottom: 1.5rem;'>📧</div>
+                <h3 style='color: #0f2a47; font-weight: 700; margin-bottom: 0.5rem;'>No Inbound Emails Yet</h3>
+                <p style='color: #6b7b92; max-width: 420px; margin: 0 auto 1.5rem;'>
+                    No bank notification emails have been received. Use the "+ New email" button above to ingest your first email.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        try:
-            st.session_state.selected_email_idx = int(selected_idx_str)
-        except ValueError:
-            st.session_state.selected_email_idx = 0
+    else:
+        # Determine which email is selected
+        selected_idx = st.session_state.get("selected_email_idx", 0)
+        if selected_idx >= len(df_transactions) or selected_idx < 0:
+            selected_idx = 0
+        selected = df_transactions.iloc[selected_idx]
+        selected_hour = int(selected["Time"].split()[1].split(":")[0])
+        selected_risk = selected["Risk_Level"].lower()
+        selected_probability = selected["Fraud_Score"] * 100
+        selected_date = selected["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
+        selected_subject = f"Transaction Alert - RM{selected['Amount']:,.2f} {selected['Type']}"
+        selected_message = (
+            f"Dear customer, we detected a {selected['Type'].lower()} of RM{selected['Amount']:,.2f} "
+            f"at {selected['Location']} on {selected['Timestamp'].strftime('%a %b %d %Y at %I:%M %p').lower().replace(' 0', ' ')}. "
+            "If this was not you, please contact us immediately."
+        )
 
-        for idx, (df_index, row) in enumerate(df_transactions.head(6).iterrows()):
-            risk_key = row["Risk_Level"].lower()
-            subject = f"Transaction Alert - RM{row['Amount']:,.2f} {row['Type']}"
-            preview = f"Dear customer, we detected a {row['Type'].lower()} of RM{row['Amount']:,.2f} ..."
-            item_date = row["Timestamp"].strftime("%d/%m/%Y, %I:%M %p").lower().replace(" 0", " ")
-            active_class = " mail-item-active" if idx == selected_idx else ""
+        # Build detailed reasons
+        selected_reasons = get_fraud_reasons(
+            selected["Amount"],
+            selected_hour,
+            selected["Type"],
+            fraud_score=selected["Fraud_Score"],
+            location=selected["Location"]
+        )
 
-            onclick_js = f"""
-            const doc = (window.parent && window.parent.document) ? window.parent.document : document;
-            const labels = doc.querySelectorAll('label');
-            let input = null;
-            for (let i = 0; i < labels.length; i++) {{
-                if (labels[i].textContent.trim() === "selected_email_idx_hidden") {{
-                    const forId = labels[i].getAttribute("for");
-                    if (forId) {{
-                        input = doc.getElementById(forId);
-                    }}
-                    break;
-                }}
-            }}
-            if (input) {{
-                input.value = "{idx}";
-                input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-                input.dispatchEvent(new Event("change", {{ bubbles: true }}));
-            }}
-            """.strip().replace('\n', ' ')
+        # Model-derived explanation and suspicious factors
+        model_explanation = selected.get("Explanation") if "Explanation" in selected and pd.notna(selected["Explanation"]) else ""
+        model_factors = selected.get("Suspicious_Factors") if "Suspicious_Factors" in selected and isinstance(selected["Suspicious_Factors"], list) else []
 
-            st.markdown(
-                textwrap.dedent(f"""
-                <div class='mail-item{active_class}' onclick='{onclick_js}'>
-                    <div class='mail-row'>
-                        <div class='mail-sender'>alerts@maybank2u.com.my</div>
-                        <div class='risk-pill risk-{risk_key}'>{row['Risk_Level']}</div>
-                    </div>
-                    <div class='mail-subject'>{subject}</div>
-                    <div class='mail-preview'>{preview}</div>
-                    <div class='mail-time'>{item_date}</div>
-                </div>
-                """).strip(),
-                unsafe_allow_html=True
+        # Fallback to session state only if the selected transaction doesn't have it
+        if not model_explanation and not model_factors:
+            model_explanation = st.session_state.get("latest_explanation", "")
+            model_factors = st.session_state.get("latest_suspicious_factors", [])
+
+        # Build HTML for model explanation
+        explanation_html = (f"<p style='margin-bottom:0.6rem;color:#374151;'>{model_explanation}</p>"
+                            if model_explanation else "")
+
+        # Build HTML list for model factors
+        factors_html = ""
+        if model_factors:
+            factor_items = []
+            for factor in model_factors:
+                code = factor.get('code', '')
+                reason_text = factor.get('reason', '')
+                weight = factor.get('weight', 0)
+                weight_str = "{:.2f}".format(weight)
+                factor_items.append(
+                    f"<li><strong>{code}</strong>: {reason_text} "
+                    f"<span style='color:#9ca3af;font-size:0.85em;'>(ML weight: {weight_str})</span></li>"
+                )
+            factors_html = (
+                "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>ML Model Signals:</p>"
+                "<ul style='margin:0 0 0.5rem;'>" + "".join(factor_items) + "</ul>"
             )
 
-    with inbox_col2:
-        # Render the right-side cards
-        detail_html = f"""
-        <div class='email-card'>
-            <div class='email-head'>
-                <div class='email-icon'>
-                    <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
-                        <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
-                        <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
-                    </svg>
-                </div>
-                <div>
-                    <div class='email-subject'>{selected_subject}</div>
-                    <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
-                </div>
-            </div>
-            <div class='email-body'>{selected_message}</div>
-        </div>
+        # Build rule-based reasons
+        rule_items = "".join(
+            f"<li style='margin-bottom:0.4rem;line-height:1.5;'>{r}</li>"
+            for r in selected_reasons
+        )
+        rules_html = (
+            "<p style='font-weight:600;margin:0.5rem 0 0.3rem;'>Fraud Indicators:</p>"
+            f"<ul style='margin:0;padding-left:1.2rem;'>" + rule_items + "</ul>"
+        )
 
-        <div class='analysis-card'>
-            <div class='analysis-top'>
-                <div class='analysis-title'>Fraud Analysis</div>
-                <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
-            </div>
-            <div class='prob-row'>
-                <div class='prob-label'>Fraud Probability</div>
-                <div class='prob-value'>{selected_probability:.1f}%</div>
-            </div>
-            <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
-            <div class='detail-grid'>
-                <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
-                <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
-                <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
-                <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
-            </div>
-            <div class='reason-label'>Why this score?</div>
-            <div class='reason-list'>{combined_reason_html}</div>
-        </div>
-        """.strip()
+        combined_reason_html = explanation_html + factors_html + rules_html
 
-        detail_html = "\n".join(line.lstrip() for line in detail_html.splitlines())
-        st.markdown(detail_html, unsafe_allow_html=True)
+        # Two-column layout: list | detail
+        inbox_col1, inbox_col2 = st.columns([1, 2], gap="small")
+
+        with inbox_col1:
+            st.markdown(
+                _build_inbox_mail_list_html(df_transactions, selected_idx),
+                unsafe_allow_html=True,
+            )
+
+        with inbox_col2:
+            detail_html = f"""
+            <div class='email-card'>
+                <div class='email-head'>
+                    <div class='email-icon'>
+                        <svg width='27' height='27' viewBox='0 0 24 24' fill='none'>
+                            <path d='M4 6h16v12H4V6Z' stroke='currentColor' stroke-width='2' stroke-linejoin='round'/>
+                            <path d='m4 7 8 6 8-6' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/>
+                        </svg>
+                    </div>
+                    <div>
+                        <div class='email-subject'>{selected_subject}</div>
+                        <div class='email-meta'>From alerts@maybank2u.com.my - {selected_date}</div>
+                    </div>
+                </div>
+                <div class='email-body'>{selected_message}</div>
+            </div>
+
+            <div class='analysis-card'>
+                <div class='analysis-top'>
+                    <div class='analysis-title'>Fraud Analysis</div>
+                    <div class='risk-solid risk-solid-{selected_risk}'>{selected['Risk_Level']} RISK</div>
+                </div>
+                <div class='prob-row'>
+                    <div class='prob-label'>Fraud Probability</div>
+                    <div class='prob-value'>{selected_probability:.1f}%</div>
+                </div>
+                <div class='prob-track'><div class='prob-fill' style='width:{selected_probability:.1f}%'></div></div>
+                <div class='detail-grid'>
+                    <div class='detail-box'><div class='detail-label'>Amount</div><div class='detail-value'>RM{selected['Amount']:,.2f}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Type</div><div class='detail-value'>{selected['Type']}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Txn ID</div><div class='detail-value'>{selected['Transaction_ID']}</div></div>
+                    <div class='detail-box'><div class='detail-label'>Merchant</div><div class='detail-value'>{selected['Location']}</div></div>
+                </div>
+                <div class='reason-label'>Why this score?</div>
+                <div class='reason-list'>{combined_reason_html}</div>
+            </div>
+            """.strip()
+
+            detail_html = "\n".join(line.lstrip() for line in detail_html.splitlines())
+            st.markdown(detail_html, unsafe_allow_html=True)
 
 # ============================================================================
 # PAGE: TRANSACTIONS
