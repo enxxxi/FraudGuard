@@ -1240,23 +1240,36 @@ def empty_transactions_df():
     return pd.DataFrame(columns=TRANSACTION_COLUMNS)
 
 
+def get_config_value(key, default=None):
+    # Try environment variable
+    val = os.getenv(key)
+    if val is not None:
+        return val
+    # Try Streamlit Secrets
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return default
+
 DEFAULT_FIREBASE_PROJECT_ID = (
-    os.getenv("FRAUDGUARD_FIREBASE_PROJECT_ID")
+    get_config_value("FRAUDGUARD_FIREBASE_PROJECT_ID")
     or os.getenv("GCLOUD_PROJECT")
     or os.getenv("PROJECT_ID")
     or "fraudguard-wie2003"
 )
 FIREBASE_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
 LOCAL_API_BASE_URL = "https://api-2xlf3uoe6a-uc.a.run.app"
-API_BASE_URL = os.getenv(
-    "FRAUDGUARD_API_BASE_URL",
-    os.getenv("FRAUDGUARD_USE_FIREBASE_EMULATOR", "").lower() in {"1", "true", "yes"}
-    and FIREBASE_API_BASE_URL
-    or LOCAL_API_BASE_URL,
-).rstrip("/")
-API_USER_ID = os.getenv("FRAUDGUARD_USER_ID", "demo-user")
-API_TIMEOUT_SECONDS = float(os.getenv("FRAUDGUARD_API_TIMEOUT_SECONDS", "10"))
-ML_SERVICE_URL = os.getenv("FRAUDGUARD_ML_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
+
+use_emulator = str(get_config_value("FRAUDGUARD_USE_FIREBASE_EMULATOR", "")).lower() in {"1", "true", "yes"}
+default_api_url = FIREBASE_API_BASE_URL if use_emulator else LOCAL_API_BASE_URL
+
+API_BASE_URL = get_config_value("FRAUDGUARD_API_BASE_URL", default_api_url).rstrip("/")
+API_USER_ID = get_config_value("FRAUDGUARD_USER_ID", "demo-user")
+API_TIMEOUT_SECONDS = float(get_config_value("FRAUDGUARD_API_TIMEOUT_SECONDS", "10"))
+ML_SERVICE_URL = get_config_value("FRAUDGUARD_ML_SERVICE_URL", "http://127.0.0.1:8000").rstrip("/")
+
 
 
 def _api_request(api_base_url, path, *, method="GET", body=None, params=None, timeout=None):
