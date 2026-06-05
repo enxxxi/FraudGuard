@@ -1260,7 +1260,7 @@ DEFAULT_FIREBASE_PROJECT_ID = (
     or "fraudguard-wie2003"
 )
 FIREBASE_API_BASE_URL = f"http://127.0.0.1:5001/{DEFAULT_FIREBASE_PROJECT_ID}/us-central1/api"
-LOCAL_API_BASE_URL = "https://api-2xlf3uoe6a-uc.a.run.app"
+LOCAL_API_BASE_URL = "https://api-855462652724.us-central1.run.app"
 
 use_emulator = str(get_config_value("FRAUDGUARD_USE_FIREBASE_EMULATOR", "")).lower() in {"1", "true", "yes"}
 default_api_url = FIREBASE_API_BASE_URL if use_emulator else LOCAL_API_BASE_URL
