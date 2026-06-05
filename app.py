@@ -1785,7 +1785,7 @@ def _build_inbox_mail_list_html(transactions_df, selected_idx: int) -> str:
         location = html.escape(str(row["Location"]))
         risk_label = html.escape(str(row["Risk_Level"]))
         parts.append(
-            f'<a href="?page=Email+Inbox&amp;email_idx={idx}" target="_top" class="mail-item-link">'
+            f'<a href="?page=Email+Inbox&amp;email_idx={idx}" target="_self" class="mail-item-link">'
             f'<div class="mail-item{active}">'
             f'<div class="mail-row">'
             f'<div class="mail-from-wrap">{_mail_type_icon_html(str(row["Type"]))}'
@@ -2111,7 +2111,7 @@ if page == "Dashboard":
 
             st.markdown(
                 f"""
-                <a href='?page=Email+Inbox&email_idx={pos}' target='_top' class='mail-item-link'>
+                <a href='?page=Email+Inbox&email_idx={pos}' target='_self' class='mail-item-link'>
                     <div class='dashboard-alert-card'>
                         <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.6rem;'>
                             <div style='display: flex; align-items: center; gap: 0.8rem;'>
@@ -2377,7 +2377,7 @@ elif page == "Transactions":
         <div class='page-subtitle'>{total_transactions_displayed} of {total_transactions_analyzed} transactions analyzed</div>
     </div>
 </div>
-<form action="" method="get" target="_top" style="display: flex; align-items: center; gap: 0.8rem; margin: 0 0 1.8rem; width: 100%;">
+<form action="" method="get" target="_self" style="display: flex; align-items: center; gap: 0.8rem; margin: 0 0 1.8rem; width: 100%;">
     <input type="hidden" name="page" value="Transactions">
     <input type="hidden" name="filter" value="{tx_filter}">
     <div class="tx-search" style="flex: 1; height: 46px; border: 1px solid #d7e0ea; border-radius: 8px; background: #ffffff; box-shadow: var(--shadow); color: #5b6c82; display: flex; align-items: center; gap: 0.75rem; padding: 0 1rem; font-size: 0.96rem;">
@@ -2387,10 +2387,10 @@ elif page == "Transactions":
         </svg>
         <input type="text" name="search" placeholder="Search merchant, location, type..." value="{escaped_search}" style="border: none; outline: none; width: 100%; font-size: 0.96rem; color: #071f3d; background: transparent;">
     </div>
-    <a href="?page=Transactions&filter=ALL&search={quoted_search}" target="_top" class="tx-filter {active_all}" style="text-decoration: none;">ALL</a>
-    <a href="?page=Transactions&filter=HIGH&search={quoted_search}" target="_top" class="tx-filter {active_high}" style="text-decoration: none;">HIGH</a>
-    <a href="?page=Transactions&filter=MEDIUM&search={quoted_search}" target="_top" class="tx-filter {active_medium}" style="text-decoration: none;">MEDIUM</a>
-    <a href="?page=Transactions&filter=LOW&search={quoted_search}" target="_top" class="tx-filter {active_low}" style="text-decoration: none;">LOW</a>
+    <a href="?page=Transactions&filter=ALL&search={quoted_search}" target="_self" class="tx-filter {active_all}" style="text-decoration: none;">ALL</a>
+    <a href="?page=Transactions&filter=HIGH&search={quoted_search}" target="_self" class="tx-filter {active_high}" style="text-decoration: none;">HIGH</a>
+    <a href="?page=Transactions&filter=MEDIUM&search={quoted_search}" target="_self" class="tx-filter {active_medium}" style="text-decoration: none;">MEDIUM</a>
+    <a href="?page=Transactions&filter=LOW&search={quoted_search}" target="_self" class="tx-filter {active_low}" style="text-decoration: none;">LOW</a>
 </form>
 <div class='tx-table-card'>
     <table class='tx-table'>
