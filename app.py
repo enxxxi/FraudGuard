@@ -1323,7 +1323,10 @@ def _parse_timestamp(value):
         return value
 
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        from datetime import timezone, timedelta
+        local_tz = timezone(timedelta(hours=8))
+        return dt.astimezone(local_tz).replace(tzinfo=None)
     except ValueError:
         return datetime.now()
 
