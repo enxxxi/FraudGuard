@@ -93,7 +93,11 @@ def _parse_email(email_content: str) -> dict[str, Any]:
     merchant = "Unknown Merchant"
     merchant_match = re.search(r"(?:at|from|to)\s+([^.\n]+)", email_content, re.I)
     if merchant_match:
-        merchant = merchant_match.group(1).strip()[:160]
+        val = merchant_match.group(1).strip()
+        for sep in (" at ", " on ", " from ", " on: ", " at: "):
+            if sep in val:
+                val = val.split(sep)[0].strip()
+        merchant = val[:160]
 
     location = "Unknown"
     # Pattern 1: location/country followed by colon/dash
@@ -144,20 +148,22 @@ def _parse_email(email_content: str) -> dict[str, Any]:
             break
 
     # Try standard YYYY-MM-DD[ T]HH:MM first
+    from datetime import timedelta
+    local_tz = timezone(timedelta(hours=8))
     dt_match = re.search(r"(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2})", email_content)
     if dt_match:
         try:
-            transaction_time = datetime.fromisoformat(dt_match.group(1).replace(" ", "T")).replace(tzinfo=timezone.utc).isoformat()
+            transaction_time = datetime.fromisoformat(dt_match.group(1).replace(" ", "T")).replace(tzinfo=local_tz).isoformat()
         except ValueError:
-            transaction_time = datetime.now(timezone.utc).isoformat()
+            transaction_time = datetime.now(local_tz).isoformat()
     elif date_str or time_str:
         if date_str:
             try:
                 dt_part = datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
-                dt_part = datetime.now(timezone.utc)
+                dt_part = datetime.now(local_tz)
         else:
-            dt_part = datetime.now(timezone.utc)
+            dt_part = datetime.now(local_tz)
 
         hour, minute = 12, 0
         if time_str:
@@ -173,13 +179,13 @@ def _parse_email(email_content: str) -> dict[str, Any]:
                 elif is_am and hour == 12:
                     hour = 0
         else:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(local_tz)
             hour, minute = now.hour, now.minute
 
-        final_dt = dt_part.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=timezone.utc)
+        final_dt = dt_part.replace(hour=hour, minute=minute, second=0, microsecond=0, tzinfo=local_tz)
         transaction_time = final_dt.isoformat()
     else:
-        transaction_time = datetime.now(timezone.utc).isoformat()
+        transaction_time = datetime.now(local_tz).isoformat()
 
     warnings: list[str] = []
     if location == "Unknown":

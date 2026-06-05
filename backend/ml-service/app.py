@@ -273,6 +273,8 @@ def predict(payload: PredictionRequest) -> dict[str, Any]:
     context = payload.context
     
     dt = parse_time(transaction.transactionTime)
+    from datetime import timedelta
+    dt = dt.astimezone(timezone(timedelta(hours=8)))
     
     # Calculate ML fraud probability and explainable rule factors
     prob = predict_fraud_score(transaction, context, dt)

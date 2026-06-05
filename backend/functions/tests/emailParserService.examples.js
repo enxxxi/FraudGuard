@@ -14,7 +14,8 @@ const examples = [
       transactionType: "transfer",
       merchant: "ABC Trading",
       transactionTime: "02:03 AM",
-      referenceNumber: "TXN12345"
+      referenceNumber: "TXN12345",
+      location: "Unknown"
     }
   },
   {
@@ -29,7 +30,8 @@ const examples = [
       transactionType: "purchase",
       merchant: "McDonald's",
       transactionTime: "12:30 PM",
-      referenceNumber: null
+      referenceNumber: null,
+      location: "Unknown"
     }
   },
   {
@@ -44,7 +46,8 @@ const examples = [
       transactionType: "transfer",
       merchant: null,
       transactionTime: null,
-      referenceNumber: "TXN998877"
+      referenceNumber: "TXN998877",
+      location: "Unknown"
     }
   },
   {
@@ -59,7 +62,8 @@ const examples = [
       transactionType: "purchase",
       merchant: "Shopee",
       transactionTime: null,
-      referenceNumber: null
+      referenceNumber: null,
+      location: "Unknown"
     }
   },
   {
@@ -74,7 +78,8 @@ const examples = [
       transactionType: null,
       merchant: null,
       transactionTime: null,
-      referenceNumber: null
+      referenceNumber: null,
+      location: "Unknown"
     }
   }
 ];

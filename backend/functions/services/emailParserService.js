@@ -161,7 +161,9 @@ const buildIsoDateTime = (datePart, timePart) => {
   const paddedMinute = String(minute).padStart(2, "0");
   const date = new Date(`${year}-${paddedMonth}-${paddedDay}T${paddedHour}:${paddedMinute}:00${DEFAULT_TIMEZONE_OFFSET}`);
 
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  return Number.isNaN(date.getTime())
+    ? null
+    : `${year}-${paddedMonth}-${paddedDay}T${paddedHour}:${paddedMinute}:00${DEFAULT_TIMEZONE_OFFSET}`;
 };
 
 const extractAmount = (content) => {
@@ -195,8 +197,8 @@ const extractMerchant = (content) => {
   const patterns = [
     /\btransferred\s+to\s+(.+?)\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM)\b/i,
     /\b(?:spent|purchase|charged)\s+RM\s*[0-9,]+(?:\.[0-9]{1,2})?\s+at\s+(.+?)(?=\s+on\s+\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|\s+(?:ref|reference)\b|[.;]|$)/i,
-    /\bat\s+(.+?)(?=\s+(?:on|ref|reference|time)\b|[.;]|$)/i,
     /\bto\s+(.+?)(?=\s+(?:on|at|ref|reference)\b|[.;]|$)/i,
+    /\bat\s+(.+?)(?=\s+(?:on|ref|reference|time)\b|[.;]|$)/i,
     /\bmerchant\s*[:\-]\s*(.+?)(?=\s+(?:on|at|ref|reference)\b|[.;]|$)/i
   ];
 
